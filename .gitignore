@@ -41,4 +41,5 @@ hailo-apps/
 .idea/
 .vscode/
 *.swp
+sources/
 *~
