@@ -1,0 +1,44 @@
+# ── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environment
+venv_hailoRT/
+venv/
+.venv/
+
+# ── Hailo runtime logs ──────────────────────────────────────────────────────
+*.log
+
+# ── Binary install files ─────────────────────────────────────────────────────
+install_file/arm/*.whl
+install_file/arm/*.deb
+install_file/x86/*.whl
+install_file/x86/*.deb
+
+# ── Build artifacts ──────────────────────────────────────────────────────────
+build/
+dist/
+*.egg-info/
+*.so
+*.a
+*.o
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# ── Test / inference output ──────────────────────────────────────────────────
+test_output.jpg
+local_data/
+
+# ── Misc ─────────────────────────────────────────────────────────────────────
+hailo-apps/
+.claude/
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
