@@ -24,6 +24,7 @@ set(SOURCES
     ${PROJECT_NAME}.cpp
     ../common/toolbox.cpp
     ../common/hailo_infer.cpp
+    ../common/logging.cpp
 )
 
 add_executable(${PROJECT_NAME} ${SOURCES})
@@ -46,6 +47,11 @@ else()
     target_compile_options(${PROJECT_NAME} PRIVATE
         -Wall -Wextra -O3
     )
+endif()
+
+# LOG_LEVEL: 0=TRACE 1=DEBUG 2=INFO 3=WARN 4=ERROR 5=NONE (default: DEBUG on debug build, INFO on release)
+if(DEFINED LOG_LEVEL)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE LOG_LEVEL=${LOG_LEVEL})
 endif()
 
 target_link_libraries(${PROJECT_NAME} PRIVATE

@@ -1,4 +1,5 @@
 #include "hailo_infer.hpp"
+#include "logging.hpp"
 #include <cstring>
 #include <iostream>
 #include <thread>
@@ -7,9 +8,13 @@
 HailoInfer::HailoInfer(const std::string &hef_path,
                        hailo_format_type_t input_type,
                        hailo_format_type_t output_type){
+    LOG_TRACE("creating VDevice");
     this->vdevice = hailort::VDevice::create().expect("Failed to create VDevice");
+    LOG_TRACE("VDevice created");
 
+    LOG_TRACE("loading HEF: %s", hef_path.c_str());
     auto hef = hailort::Hef::create(hef_path).expect("Failed to create HEF");
+    LOG_TRACE("HEF loaded");
 
     auto configure_params = this->vdevice->create_configure_params(hef).expect("Failed to create configure params");
     auto network_groups = this->vdevice->configure(hef, configure_params).expect("Failed to configure network group");
@@ -17,18 +22,22 @@ HailoInfer::HailoInfer(const std::string &hef_path,
         throw std::runtime_error("Invalid amount of network groups");
     }
     this->network_group = network_groups[0];
+    LOG_TRACE("network group configured");
 
     for (auto &info : hef.get_output_vstream_infos().expect("Failed to get output vstream infos")) {
         this->output_vstream_info_by_name[std::string(info.name)] = info;
+        LOG_TRACE("output vstream registered: %s", info.name);
     }
 
     init_vstreams(input_type, output_type);
+    LOG_TRACE("HailoInfer init done");
 }
 
 void HailoInfer::init_vstreams(
     hailo_format_type_t input_type,
     hailo_format_type_t output_type){
     // 1. make input vstream
+    LOG_TRACE("creating input vstream params (format_type=%d)", static_cast<int>(input_type));
     auto input_params = this->network_group->make_input_vstream_params(
         {}, input_type,
         HAILO_DEFAULT_VSTREAM_TIMEOUT_MS,
@@ -38,8 +47,16 @@ void HailoInfer::init_vstreams(
     this->input_vstreams = VStreamsBuilder::create_input_vstreams(
         *this->network_group, input_params
     ).expect("Failed to create input vstreams");
+    for (auto &vs : this->input_vstreams) {
+        auto info = vs.get_info();
+        LOG_TRACE("input vstream: name=%s shape=[H:%u W:%u C:%u] frame_size=%zu",
+                  vs.name().c_str(),
+                  info.shape.height, info.shape.width, info.shape.features,
+                  vs.get_frame_size());
+    }
 
     // 2. make output vstream
+    LOG_TRACE("creating output vstream params (format_type=%d)", static_cast<int>(output_type));
     auto output_params = this->network_group->make_output_vstream_params(
         {}, output_type,
         HAILO_DEFAULT_VSTREAM_TIMEOUT_MS,
@@ -49,16 +66,29 @@ void HailoInfer::init_vstreams(
     this->output_vstreams = VStreamsBuilder::create_output_vstreams(
         *this->network_group, output_params
     ).expect("Failed to create output vstreams");
+    for (auto &vs : this->output_vstreams) {
+        auto info = vs.get_info();
+        LOG_TRACE("output vstream: name=%s shape=[H:%u W:%u C:%u] frame_size=%zu",
+                  vs.name().c_str(),
+                  info.shape.height, info.shape.width, info.shape.features,
+                  vs.get_frame_size());
+    }
 }
 
 hailo_vstream_info_t HailoInfer::get_input_info() {
-    return this->input_vstreams[0].get_info();
+    auto info = this->input_vstreams[0].get_info();
+    LOG_TRACE("get_input_info: name=%s shape=[H:%u W:%u C:%u]",
+              info.name, info.shape.height, info.shape.width, info.shape.features);
+    return info;
 }
 
 std::vector<hailo_vstream_info_t> HailoInfer::get_output_infos() {
     std::vector<hailo_vstream_info_t> infos;
     for (auto &vstream : this->output_vstreams) {
         infos.push_back(vstream.get_info());
+        LOG_TRACE("get_output_infos: name=%s shape=[H:%u W:%u C:%u]",
+                  infos.back().name,
+                  infos.back().shape.height, infos.back().shape.width, infos.back().shape.features);
     }
     return infos;
 }
@@ -66,10 +96,14 @@ std::vector<hailo_vstream_info_t> HailoInfer::get_output_infos() {
 void HailoInfer::set_input_buffers(const cv::Mat &input, hailo_status &status){
     auto &vstream = this->input_vstreams[0];
     size_t frame_size = vstream.get_frame_size();
+    LOG_TRACE("writing input: mat=[H:%d W:%d C:%d type:%d] frame_size=%zu",
+              input.rows, input.cols, input.channels(), input.type(), frame_size);
     status = vstream.write(MemoryView(input.data, frame_size));
     if (HAILO_SUCCESS != status) {
+        LOG_ERROR("failed to write input vstream: status=%d", static_cast<int>(status));
         std::cerr << "Failed to write to input vstream, status = " << status << std::endl;
     }
+    LOG_TRACE("input write done: status=%d", static_cast<int>(status));
 }
 
 std::vector<std::pair<uint8_t*, hailo_vstream_info_t>> HailoInfer::infer(
@@ -78,6 +112,7 @@ std::vector<std::pair<uint8_t*, hailo_vstream_info_t>> HailoInfer::infer(
     // 출력 스트림 수만큼 버퍼 슬롯 확보.
     // 각 슬롯 크기는 해당 vstream이 요구하는 1프레임 바이트 수 (포맷/해상도 기반).
     // output_buffers는 호출자가 소유 — 반환된 uint8_t* 포인터들의 수명이 이 벡터에 묶임.
+    LOG_TRACE("infer start: %zu output vstreams", this->output_vstreams.size());
     output_buffers.clear();
     output_buffers.reserve(this->output_vstreams.size());
     for (auto &vstream : this->output_vstreams) {
@@ -90,6 +125,7 @@ std::vector<std::pair<uint8_t*, hailo_vstream_info_t>> HailoInfer::infer(
     // write 스레드와 read 스레드를 분리해서 동시에 돌려야
     //   write가 블로킹되더라도 read가 출력 큐를 비워줘서 HW가 계속 진행됨.
     hailo_status write_status = HAILO_SUCCESS;
+    LOG_TRACE("spawning write thread");
     std::thread write_thread([this, &input, &write_status]() {
         // input(cv::Mat)의 raw 포인터를 MemoryView로 감싸서 vstream에 write.
         // write()는 내부 입력 큐에 자리가 생길 때까지 블로킹.
@@ -101,11 +137,13 @@ std::vector<std::pair<uint8_t*, hailo_vstream_info_t>> HailoInfer::infer(
     // 결과는 output_buffers[i]에 직접 복사됨 (VStream 내부 큐 → 사용자 버퍼).
     std::vector<hailo_status> read_statuses(this->output_vstreams.size(), HAILO_SUCCESS);
     std::vector<std::thread> read_threads;
+    LOG_TRACE("spawning %zu read threads", this->output_vstreams.size());
     for (size_t i = 0; i < this->output_vstreams.size(); ++i) {
         read_threads.emplace_back([this, i, &output_buffers, &read_statuses]() {
             auto &vstream = this->output_vstreams[i];
             auto &buf = output_buffers[i];
             read_statuses[i] = vstream.read(MemoryView(buf.data(), buf.size()));
+            LOG_TRACE("read thread[%zu] done: status=%d", i, static_cast<int>(read_statuses[i]));
         });
     }
 
@@ -114,13 +152,18 @@ std::vector<std::pair<uint8_t*, hailo_vstream_info_t>> HailoInfer::infer(
     write_thread.join();
     for (auto &t : read_threads){
         t.join();
-    } 
+    }
+    LOG_TRACE("all threads joined");
 
-    if (HAILO_SUCCESS != write_status)
+    if (HAILO_SUCCESS != write_status) {
+        LOG_ERROR("write thread failed: status=%d", static_cast<int>(write_status));
         std::cerr << "Write thread failed, status = " << write_status << std::endl;
+    }
     for (size_t i = 0; i < read_statuses.size(); ++i) {
-        if (HAILO_SUCCESS != read_statuses[i])
+        if (HAILO_SUCCESS != read_statuses[i]) {
+            LOG_ERROR("read thread[%zu] failed: status=%d", i, static_cast<int>(read_statuses[i]));
             std::cerr << "Read thread[" << i << "] failed, status = " << read_statuses[i] << std::endl;
+        }
     }
 
     // 결과 조립: 각 출력 버퍼의 raw 포인터 + 해당 vstream의 메타데이터(shape, format 등)를 페어로 묶음.
@@ -129,6 +172,9 @@ std::vector<std::pair<uint8_t*, hailo_vstream_info_t>> HailoInfer::infer(
     for (size_t i = 0; i < this->output_vstreams.size(); ++i) {
         results.emplace_back(output_buffers[i].data(),
                              output_vstream_info_by_name.at(this->output_vstreams[i].name()));
+        LOG_TRACE("result[%zu]: name=%s buf_size=%zu",
+                  i, this->output_vstreams[i].name().c_str(), output_buffers[i].size());
     }
+    LOG_TRACE("infer done: %zu results", results.size());
     return results;
 }

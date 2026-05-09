@@ -1,0 +1,5 @@
+timestamp,level,file,line,func,message
+2026-05-09 14:52:33.181,INFO ,classifier.cpp,64,main,"classifier started"
+2026-05-09 14:52:33.181,DEBUG,classifier.cpp,70,main,"config: net=src/classification/hef/efficientnet_m.hef input=local_data/input_img output=local_data/output_img"
+2026-05-09 14:52:33.181,INFO ,classifier.cpp,74,main,"loading model: src/classification/hef/efficientnet_m.hef"
+2026-05-09 14:52:33.212,ERROR,classifier.cpp,135,main,"exception: Expected::expect() failed with status=74. Failed to create VDevice"

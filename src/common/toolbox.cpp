@@ -1,4 +1,5 @@
 #include "toolbox.hpp"
+#include "logging.hpp"
 #include <algorithm>
 #include <iomanip>
 #include <iostream>
@@ -36,12 +37,17 @@ bool is_image_file(const std::string &path) {
     };
     std::string ext = fs::path(path).extension().string();
     std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-    return std::find(exts.begin(), exts.end(), ext) != exts.end();
+    bool result = std::find(exts.begin(), exts.end(), ext) != exts.end();
+    LOG_TRACE("is_image_file: %s -> %s", path.c_str(), result ? "yes" : "no");
+    return result;
 }
 
 bool is_directory_of_images(const std::string &path, size_t &entry_count, size_t batch_size) {
     entry_count = 0;
-    if (!fs::exists(path) || !fs::is_directory(path)) return false;
+    if (!fs::exists(path) || !fs::is_directory(path)) {
+        LOG_WARN("is_directory_of_images: path not found or not a directory: %s", path.c_str());
+        return false;
+    }
     bool has_images = false;
     for (const auto &entry : fs::directory_iterator(path)) {
         if (!fs::is_regular_file(entry)) continue;
@@ -53,11 +59,14 @@ bool is_directory_of_images(const std::string &path, size_t &entry_count, size_t
         throw std::invalid_argument("Directory contains " + std::to_string(entry_count) +
             " images, not divisible by batch size " + std::to_string(batch_size));
     }
+    LOG_TRACE("is_directory_of_images: %s -> %zu images", path.c_str(), entry_count);
     return has_images;
 }
 
 bool is_image(const std::string &path) {
-    return fs::exists(path) && fs::is_regular_file(path) && is_image_file(path);
+    bool result = fs::exists(path) && fs::is_regular_file(path) && is_image_file(path);
+    LOG_TRACE("is_image: %s -> %s", path.c_str(), result ? "yes" : "no");
+    return result;
 }
 
 std::string get_hef_name(const std::string &path) {
@@ -86,6 +95,8 @@ void preprocess_image(const cv::Mat &src,
                       uint32_t target_height,
                       bool image_normalization) {
     if (src.empty()) { dst = cv::Mat(); return; }
+    LOG_TRACE("preprocess_image: src=[H:%d W:%d C:%d] target=[H:%u W:%u] norm=%d",
+              src.rows, src.cols, src.channels(), target_height, target_width, image_normalization);
     cv::Mat rgb;
     switch (src.channels()) {
         case 3:  cv::cvtColor(src, rgb, cv::COLOR_BGR2RGB);  break;
@@ -100,6 +111,7 @@ void preprocess_image(const cv::Mat &src,
     } else {
         dst = fitted.isContinuous() ? fitted : fitted.clone();
     }
+    LOG_TRACE("preprocess_image: dst=[H:%d W:%d C:%d type:%d]", dst.rows, dst.cols, dst.channels(), dst.type());
 }
 
 void preprocess_image_batch(const std::vector<cv::Mat> &org_frames,
@@ -107,9 +119,11 @@ void preprocess_image_batch(const std::vector<cv::Mat> &org_frames,
                             uint32_t target_width,
                             uint32_t target_height,
                             bool image_normalization) {
+    LOG_TRACE("preprocess_image_batch: %zu frames target=[H:%u W:%u]", org_frames.size(), target_height, target_width);
     preprocessed_frames.resize(org_frames.size());
     for (size_t i = 0; i < org_frames.size(); ++i)
         preprocess_image(org_frames[i], preprocessed_frames[i], target_width, target_height, image_normalization);
+    LOG_TRACE("preprocess_image_batch: done");
 }
 
 
@@ -181,7 +195,11 @@ void save_image(const std::string &output_path, const cv::Mat &frame, const std:
         auto [w, h] = parse_resolution(output_resolution);
         to_save = resize_with_letterbox(frame, w, h);
     }
-    cv::imwrite(output_path, to_save);
+    bool ok = cv::imwrite(output_path, to_save);
+    if (ok)
+        LOG_TRACE("save_image: saved %s [H:%d W:%d]", output_path.c_str(), to_save.rows, to_save.cols);
+    else
+        LOG_ERROR("save_image: failed to write %s", output_path.c_str());
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -209,10 +227,14 @@ void print_inference_statistics(std::chrono::duration<double> inference_time,
                                 std::chrono::duration<double> total_time)
 {
     (void)hef_file;
+    double fps     = frame_count / inference_time.count();
+    double latency = 1000.0 / fps;
+    LOG_INFO("stats: frames=%.0f fps=%.2f latency=%.2f ms total=%.3f sec",
+             frame_count, fps, latency, total_time.count());
     std::cout << color::BOLDGREEN << "\n-I-----------------------------------------------\n"
-              << "-I- Average FPS:  " << frame_count / inference_time.count() << "\n"
+              << "-I- Average FPS:  " << fps << "\n"
               << "-I- Total time:   " << inference_time.count() << " sec\n"
-              << "-I- Latency:      " << 1000.0 / (frame_count / inference_time.count()) << " ms\n"
+              << "-I- Latency:      " << latency << " ms\n"
               << "-I-----------------------------------------------\n" << color::RESET
               << color::BOLDBLUE << "-I- Total run time: " << total_time.count() << " sec\n" << color::RESET;
 }
