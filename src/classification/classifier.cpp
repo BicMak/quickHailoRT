@@ -93,7 +93,6 @@ int main()
             cv::Mat org = cv::imread(entry.path().string());
             if (org.empty()) {
                 LOG_WARN("failed to read image, skipping: %s", entry.path().c_str());
-                std::cerr << "skip: " << entry.path() << "\n";
                 continue;
             }
             LOG_TRACE("image loaded: [H:%d W:%d C:%d]", org.rows, org.cols, org.channels());
@@ -135,7 +134,6 @@ int main()
     }
     catch (const std::exception &e) {
         LOG_ERROR("exception: %s", e.what());
-        std::cerr << "ERROR: " << e.what() << "\n";
         return HAILO_INTERNAL_FAILURE;
     }
 }

@@ -1,8 +1,9 @@
 #include "hailo_infer.hpp"
 #include "logging.hpp"
-#include <cstring>
 #include <iostream>
 #include <thread>
+
+using namespace hailort;
 
 
 HailoInfer::HailoInfer(const std::string &hef_path,
@@ -10,6 +11,8 @@ HailoInfer::HailoInfer(const std::string &hef_path,
                        hailo_format_type_t output_type){
     LOG_TRACE("creating VDevice");
     this->vdevice = hailort::VDevice::create().expect("Failed to create VDevice");
+    auto physical_devices = this->vdevice->get_physical_devices().expect("Failed to get physical devices");
+    this->device = &physical_devices[0].get();
     LOG_TRACE("VDevice created");
 
     LOG_TRACE("loading HEF: %s", hef_path.c_str());
@@ -96,14 +99,7 @@ std::vector<hailo_vstream_info_t> HailoInfer::get_output_infos() {
 void HailoInfer::set_input_buffers(const cv::Mat &input, hailo_status &status){
     auto &vstream = this->input_vstreams[0];
     size_t frame_size = vstream.get_frame_size();
-    LOG_TRACE("writing input: mat=[H:%d W:%d C:%d type:%d] frame_size=%zu",
-              input.rows, input.cols, input.channels(), input.type(), frame_size);
     status = vstream.write(MemoryView(input.data, frame_size));
-    if (HAILO_SUCCESS != status) {
-        LOG_ERROR("failed to write input vstream: status=%d", static_cast<int>(status));
-        std::cerr << "Failed to write to input vstream, status = " << status << std::endl;
-    }
-    LOG_TRACE("input write done: status=%d", static_cast<int>(status));
 }
 
 std::vector<std::pair<uint8_t*, hailo_vstream_info_t>> HailoInfer::infer(
@@ -112,12 +108,15 @@ std::vector<std::pair<uint8_t*, hailo_vstream_info_t>> HailoInfer::infer(
     // 출력 스트림 수만큼 버퍼 슬롯 확보.
     // 각 슬롯 크기는 해당 vstream이 요구하는 1프레임 바이트 수 (포맷/해상도 기반).
     // output_buffers는 호출자가 소유 — 반환된 uint8_t* 포인터들의 수명이 이 벡터에 묶임.
-    LOG_TRACE("infer start: %zu output vstreams", this->output_vstreams.size());
+    LOG_TRACE("infer start: input=[H:%d W:%d C:%d type:%d] output_vstreams=%zu",
+              input.rows, input.cols, input.channels(), input.type(),
+              this->output_vstreams.size());
     output_buffers.clear();
     output_buffers.reserve(this->output_vstreams.size());
     for (auto &vstream : this->output_vstreams) {
         output_buffers.emplace_back(vstream.get_frame_size());
     }
+    LOG_TRACE("input frame_size=%zu", this->input_vstreams[0].get_frame_size());
 
     // VStream은 내부적으로 입력 큐와 출력 큐를 각각 가짐.
     // write()와 read()를 같은 스레드에서 순차 실행하면:
@@ -125,7 +124,6 @@ std::vector<std::pair<uint8_t*, hailo_vstream_info_t>> HailoInfer::infer(
     // write 스레드와 read 스레드를 분리해서 동시에 돌려야
     //   write가 블로킹되더라도 read가 출력 큐를 비워줘서 HW가 계속 진행됨.
     hailo_status write_status = HAILO_SUCCESS;
-    LOG_TRACE("spawning write thread");
     std::thread write_thread([this, &input, &write_status]() {
         // input(cv::Mat)의 raw 포인터를 MemoryView로 감싸서 vstream에 write.
         // write()는 내부 입력 큐에 자리가 생길 때까지 블로킹.
@@ -137,13 +135,11 @@ std::vector<std::pair<uint8_t*, hailo_vstream_info_t>> HailoInfer::infer(
     // 결과는 output_buffers[i]에 직접 복사됨 (VStream 내부 큐 → 사용자 버퍼).
     std::vector<hailo_status> read_statuses(this->output_vstreams.size(), HAILO_SUCCESS);
     std::vector<std::thread> read_threads;
-    LOG_TRACE("spawning %zu read threads", this->output_vstreams.size());
     for (size_t i = 0; i < this->output_vstreams.size(); ++i) {
         read_threads.emplace_back([this, i, &output_buffers, &read_statuses]() {
             auto &vstream = this->output_vstreams[i];
             auto &buf = output_buffers[i];
             read_statuses[i] = vstream.read(MemoryView(buf.data(), buf.size()));
-            LOG_TRACE("read thread[%zu] done: status=%d", i, static_cast<int>(read_statuses[i]));
         });
     }
 
@@ -155,16 +151,18 @@ std::vector<std::pair<uint8_t*, hailo_vstream_info_t>> HailoInfer::infer(
     }
     LOG_TRACE("all threads joined");
 
-    if (HAILO_SUCCESS != write_status) {
+    // 핫패스 종료 후 메인 스레드에서 한 번에 status/온도 로깅
+    LOG_TRACE("write status=%d", static_cast<int>(write_status));
+    if (HAILO_SUCCESS != write_status)
         LOG_ERROR("write thread failed: status=%d", static_cast<int>(write_status));
-        std::cerr << "Write thread failed, status = " << write_status << std::endl;
-    }
     for (size_t i = 0; i < read_statuses.size(); ++i) {
-        if (HAILO_SUCCESS != read_statuses[i]) {
+        LOG_TRACE("read[%zu] status=%d", i, static_cast<int>(read_statuses[i]));
+        if (HAILO_SUCCESS != read_statuses[i])
             LOG_ERROR("read thread[%zu] failed: status=%d", i, static_cast<int>(read_statuses[i]));
-            std::cerr << "Read thread[" << i << "] failed, status = " << read_statuses[i] << std::endl;
-        }
     }
+
+    auto temp = this->device->get_chip_temperature();
+    if (temp) LOG_INFO("temperature: ts0=%.1f C ts1=%.1f C", temp->ts0_temperature, temp->ts1_temperature);
 
     // 결과 조립: 각 출력 버퍼의 raw 포인터 + 해당 vstream의 메타데이터(shape, format 등)를 페어로 묶음.
     // 호출자는 이 포인터로 후처리(bbox decode, NMS 등)를 수행.

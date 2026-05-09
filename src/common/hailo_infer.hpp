@@ -2,17 +2,15 @@
 #define _HAILO_ASYNC_INFERENCE_HPP_
 
 #include "hailo/hailort.hpp"
-#include <iostream>
 #include <opencv2/opencv.hpp>
 #include <opencv2/highgui.hpp>
 #include <opencv2/core/matx.hpp>
 #include <opencv2/imgcodecs.hpp>
 
-using namespace hailort;
-
 class HailoInfer {
     private:
         std::unique_ptr<hailort::VDevice> vdevice;
+        hailort::Device *device = nullptr;
         std::shared_ptr<hailort::ConfiguredNetworkGroup> network_group;
         std::vector<hailort::InputVStream> input_vstreams;
         std::vector<hailort::OutputVStream> output_vstreams;

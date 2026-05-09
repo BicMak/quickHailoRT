@@ -2,6 +2,7 @@
 
 #include <cstdarg>
 #include <cstdio>
+#include <cstdlib>
 #include <ctime>
 #include <sys/stat.h>
 
@@ -26,8 +27,10 @@ void set_log_file(const char *log_dir) {
              t->tm_hour, t->tm_min, t->tm_sec);
 
     g_csv_file = fopen(path, "w");
-    if (g_csv_file)
+    if (g_csv_file) {
         fprintf(g_csv_file, "timestamp,level,file,line,func,message\n");
+        atexit([]{ if (g_csv_file) { fclose(g_csv_file); g_csv_file = nullptr; } });
+    }
 }
 
 void _log(int level, const char *color, const char *tag,
@@ -69,6 +72,7 @@ void _log(int level, const char *color, const char *tag,
                 timebuf, ms, tag, basename, line, func);
         for (char *p = msgbuf; *p; ++p) {
             if (*p == '"') fputc('"', g_csv_file);
+            if (*p == '\n' || *p == '\r') { fputc(' ', g_csv_file); continue; }
             fputc(*p, g_csv_file);
         }
         fprintf(g_csv_file, "\"\n");

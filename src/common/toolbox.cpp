@@ -189,7 +189,9 @@ bool show_frame(const std::string &window_name, cv::Mat &frame, const std::strin
     return !(key == 'q' || key == 27);
 }
 
-void save_image(const std::string &output_path, const cv::Mat &frame, const std::string &output_resolution) {
+void save_image(const std::string &output_path, 
+                const cv::Mat &frame, 
+                const std::string &output_resolution) {
     cv::Mat to_save = frame;
     if (!output_resolution.empty() && !frame.empty()) {
         auto [w, h] = parse_resolution(output_resolution);
