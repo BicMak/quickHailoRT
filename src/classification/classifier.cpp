@@ -45,8 +45,8 @@ static std::string classify_and_format(const std::vector<float> &logits, float t
 
     LOG_TRACE("classify: top_idx=%d conf=%.4f threshold=%.2f", idx, conf, threshold);
 
-    if (conf < threshold) {
-        LOG_TRACE("classify: below threshold, returning N/A");
+    if (conf < threshold || idx < 0 || idx >= 1000) {
+        LOG_TRACE("classify: below threshold or out of range (idx=%d), returning N/A", idx);
         return std::string("N/A");
     }
 

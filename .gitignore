@@ -36,6 +36,7 @@ local_data/
 
 # ── Misc ─────────────────────────────────────────────────────────────────────
 hailo-apps/
+imagenet-sample-images/
 .claude/
 .DS_Store
 .idea/

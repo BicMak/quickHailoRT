@@ -81,7 +81,8 @@ std::string get_hef_name(const std::string &path) {
 static cv::Mat center_crop(const cv::Mat &img, int target_h, int target_w) {
     // 짧은 변을 target에 맞게 리사이즈 후 중앙 크롭
     double scale = std::max(double(target_w) / img.cols, double(target_h) / img.rows);
-    int new_w = int(img.cols * scale), new_h = int(img.rows * scale);
+    int new_w = std::max(target_w, int(img.cols * scale));
+    int new_h = std::max(target_h, int(img.rows * scale));
     cv::Mat resized;
     cv::resize(img, resized, cv::Size(new_w, new_h));
     const int x = (new_w - target_w) / 2;
