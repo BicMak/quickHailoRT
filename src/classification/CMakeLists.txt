@@ -58,4 +58,5 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     HailoRT::libhailort
     Threads::Threads
     ${OpenCV_LIBS}
+    yaml-cpp
 )

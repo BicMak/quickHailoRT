@@ -1,0 +1,4 @@
+net: src/classification/hef/efficientnet_m.hef
+input: local_data/input_img
+output: local_data/output_img
+threshold: 0.30
