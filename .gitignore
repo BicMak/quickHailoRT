@@ -18,6 +18,10 @@ install_file/arm/*.deb
 install_file/x86/*.whl
 install_file/x86/*.deb
 
+# ── Model files (HEF / NPY) ──────────────────────────────────────────────────
+*.hef
+*.npy
+
 # ── Build artifacts ──────────────────────────────────────────────────────────
 build/
 dist/
