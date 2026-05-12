@@ -26,7 +26,6 @@
 using namespace hailort;
 using Clock = std::chrono::steady_clock;
 
-static constexpr int   NUM_TOKENS  = 77;
 static constexpr float LOGIT_SCALE = 4.6051702f;
 
 static void normalize_vec(std::vector<float> &v) {
@@ -58,9 +57,11 @@ static std::vector<float> load_text_projection(const std::string &path,
 }
 
 // gathered[embed_dim] @ projection[embed_dim x proj_dim] → out[proj_dim], then L2-normalize
-static std::vector<float> project_and_normalize(const std::vector<float> &gathered,
-                                                const std::vector<float> &projection,
-                                                size_t embed_dim, size_t proj_dim) {
+static std::vector<float> project_and_normalize(
+    const std::vector<float> &gathered,
+    const std::vector<float> &projection,
+    size_t embed_dim, size_t proj_dim) {
+
     std::vector<float> out(proj_dim, 0.0f);
     for (size_t j = 0; j < proj_dim; ++j) {
         float acc = 0.0f;
@@ -73,18 +74,69 @@ static std::vector<float> project_and_normalize(const std::vector<float> &gather
 }
 
 struct TextEncodeStats {
-    std::vector<double> per_prompt_ms;   // pure model.infer() time per prompt
-    double total_pipeline_ms = 0.0;      // tokenize + projection load + infers + post
+    std::vector<double> per_prompt_ms;
+    double total_pipeline_ms = 0.0;
 };
 
-static std::vector<std::vector<float>>
-encode_texts(HailoInfer &model,
-             size_t model_index,
-             const std::vector<std::string> &prompts,
-             const std::string &embedding_npy,
-             const std::string &bpe_vocab,
-             const std::string &text_projection_path,
-             TextEncodeStats &stats) {
+struct ImageInferResult {
+    std::string label;
+    float       confidence = 0.0f;
+    double      preprocess_ms  = 0.0;
+    double      infer_ms       = 0.0;
+    double      postprocess_ms = 0.0;
+};
+
+static ImageInferResult classify_image(
+    const std::filesystem::path &path,
+    HailoInfer &model, size_t model_index,
+    const std::vector<std::string> &prompts,
+    const std::vector<std::vector<float>> &text_embeddings,
+    uint32_t target_w, uint32_t target_h,
+    size_t img_emb_count,
+    std::vector<uint8_t> &img_out_raw) {
+
+    cv::Mat org = cv::imread(path.string());
+    if (org.empty())
+        throw std::runtime_error("cannot read image: " + path.string());
+
+    auto t0 = Clock::now();
+    cv::Mat preprocessed;
+    hailo_utils::preprocess_image(org, preprocessed, target_w, target_h, false);
+    auto t1 = Clock::now();
+
+    std::vector<MemoryView> outs{ MemoryView(img_out_raw.data(), img_out_raw.size()) };
+    auto status = model.infer(
+        MemoryView(preprocessed.data, preprocessed.total() * preprocessed.elemSize()),
+        outs, model_index);
+    auto t2 = Clock::now();
+    if (status != HAILO_SUCCESS)
+        throw std::runtime_error("image infer failed");
+
+    const float *f = reinterpret_cast<const float*>(img_out_raw.data());
+    std::vector<float> img_emb(f, f + img_emb_count);
+    normalize_vec(img_emb);
+    auto logits = dot_logits(img_emb, text_embeddings);
+    auto probs  = softmax(logits);
+    size_t best = std::distance(probs.begin(), std::max_element(probs.begin(), probs.end()));
+    auto t3 = Clock::now();
+
+    return {
+        prompts[best],
+        probs[best],
+        std::chrono::duration<double, std::milli>(t1 - t0).count(),
+        std::chrono::duration<double, std::milli>(t2 - t1).count(),
+        std::chrono::duration<double, std::milli>(t3 - t2).count(),
+    };
+}
+
+static std::vector<std::vector<float>> encode_texts(
+    HailoInfer &model,
+    size_t model_index,
+    const std::vector<std::string> &prompts,
+    const std::string &embedding_npy,
+    const std::string &bpe_vocab,
+    const std::string &text_projection_path,
+    TextEncodeStats &stats) {
 
     auto t_pipeline_start = Clock::now();
 
@@ -119,8 +171,10 @@ encode_texts(HailoInfer &model,
         if (status != HAILO_SUCCESS)
             throw std::runtime_error("text encoder infer failed");
 
-        stats.per_prompt_ms.push_back(
-            std::chrono::duration<double, std::milli>(t_infer_end - t_infer_start).count());
+        double infer_ms = std::chrono::duration<double, std::milli>(t_infer_end - t_infer_start).count();
+        stats.per_prompt_ms.push_back(infer_ms);
+        LOG_TRACE("[text %zu/%zu] \"%s\"  infer=%.2f ms",
+                  i + 1, token_embeddings.size(), prompts[i].c_str(), infer_ms);
 
         const float *f = reinterpret_cast<const float*>(raw_out.data());
         const int row = last_tokens[i] - 1;
@@ -207,59 +261,40 @@ int main(int argc, char **argv) try {
 
     std::vector<uint8_t> img_out_raw(img_emb_count * sizeof(float));
 
-    // Per-image timing buckets
-    std::vector<double> preprocess_ms;
-    std::vector<double> image_infer_ms;
-    std::vector<double> postprocess_ms;
-    std::vector<double> image_total_ms;  // preprocess + infer + post
+    std::vector<double> preprocess_ms, image_infer_ms, postprocess_ms, image_total_ms;
     size_t processed = 0;
 
-    auto process_one = [&](const std::filesystem::path &path) {
-        cv::Mat org = cv::imread(path.string());
-        if (org.empty()) { LOG_WARN("skip: %s", path.c_str()); return; }
+    auto run_one = [&](const std::filesystem::path &path) {
+        auto t_start = Clock::now();
+        ImageInferResult r;
+        try {
+            r = classify_image(path, model, IMAGE_IDX, cfg.prompts, text_embeddings,
+                               target_w, target_h, img_emb_count, img_out_raw);
+        } catch (const std::exception &e) {
+            LOG_WARN("skip %s: %s", path.filename().c_str(), e.what());
+            return;
+        }
+        double total_ms = std::chrono::duration<double, std::milli>(Clock::now() - t_start).count();
 
-        auto t_img_start = Clock::now();
-
-        auto t0 = Clock::now();
-        cv::Mat preprocessed;
-        hailo_utils::preprocess_image(org, preprocessed, target_w, target_h, false);
-        auto t1 = Clock::now();
-
-        std::vector<MemoryView> outs{ MemoryView(img_out_raw.data(), img_out_raw.size()) };
-        auto status = model.infer(
-            MemoryView(preprocessed.data, preprocessed.total() * preprocessed.elemSize()),
-            outs, IMAGE_IDX);
-        auto t2 = Clock::now();
-        if (status != HAILO_SUCCESS) { LOG_ERROR("image infer failed"); return; }
-
-        const float *f = reinterpret_cast<const float*>(img_out_raw.data());
-        std::vector<float> img_emb(f, f + img_emb_count);
-        normalize_vec(img_emb);
-        auto logits = dot_logits(img_emb, text_embeddings);
-        auto probs  = softmax(logits);
-        size_t best = std::distance(probs.begin(),
-                                    std::max_element(probs.begin(), probs.end()));
-        auto t3 = Clock::now();
-
-        preprocess_ms.push_back(std::chrono::duration<double, std::milli>(t1 - t0).count());
-        image_infer_ms.push_back(std::chrono::duration<double, std::milli>(t2 - t1).count());
-        postprocess_ms.push_back(std::chrono::duration<double, std::milli>(t3 - t2).count());
-        image_total_ms.push_back(std::chrono::duration<double, std::milli>(t3 - t_img_start).count());
+        preprocess_ms.push_back(r.preprocess_ms);
+        image_infer_ms.push_back(r.infer_ms);
+        postprocess_ms.push_back(r.postprocess_ms);
+        image_total_ms.push_back(total_ms);
         ++processed;
 
-        LOG_INFO("%s -> %s (%.2f%%)  [pre=%.1f infer=%.1f post=%.1f ms]",
-                 path.filename().c_str(), cfg.prompts[best].c_str(),
-                 probs[best] * 100.0f,
-                 preprocess_ms.back(), image_infer_ms.back(), postprocess_ms.back());
+        LOG_TRACE("[image %zu] pre=%.1f infer=%.1f post=%.1f ms",
+                  processed, r.preprocess_ms, r.infer_ms, r.postprocess_ms);
+        LOG_INFO("%s -> %s (%.2f%%)",
+                 path.filename().c_str(), r.label.c_str(), r.confidence * 100.0f);
     };
 
     if (std::filesystem::is_directory(cfg.input)) {
         for (const auto &entry : std::filesystem::directory_iterator(cfg.input)) {
             if (hailo_utils::is_image_file(entry.path().string()))
-                process_one(entry.path());
+                run_one(entry.path());
         }
     } else {
-        process_one(cfg.input);
+        run_one(cfg.input);
     }
 
     const double total_pipeline_ms =

@@ -23,7 +23,7 @@ prompts:
   - a photo of a whale
   - a photo of a dolphin
   - a photo of a seal
-  
+
   # 조류
   - a photo of a bird
   - a photo of an eagle
@@ -32,19 +32,19 @@ prompts:
   - a photo of a chicken
   - a photo of a duck
   - a photo of a penguin
-  
+
   # 파충류/양서류
   - a photo of a snake
   - a photo of a lizard
   - a photo of a turtle
   - a photo of a crocodile
   - a photo of a frog
-  
+
   # 어류/수생생물
   - a photo of a fish
   - a photo of a shark
-  - a photo of a ray
-  
+  - a photo of an eel
+
   # 절지동물
   - a photo of an insect
   - a photo of a spider
@@ -53,16 +53,16 @@ prompts:
   - a photo of a bee
   - a photo of a crab
   - a photo of a lobster
-  
+
   # 식물
   - a photo of a flower
   - a photo of a tree
   - a photo of a mushroom
-  
+
   # 과일/채소
   - a photo of a fruit
   - a photo of a vegetable
-  
+
   # 탈것
   - a photo of a car
   - a photo of a bus
@@ -74,14 +74,15 @@ prompts:
   - a photo of a helicopter
   - a photo of a boat
   - a photo of a ship
-  
+  - a photo of a tank
+
   # 가구
   - a photo of a chair
   - a photo of a table
   - a photo of a bed
   - a photo of a sofa
   - a photo of a bench
-  
+
   # 생활용품
   - a photo of a bottle
   - a photo of a cup
@@ -94,34 +95,66 @@ prompts:
   - a photo of a clock
   - a photo of a vase
   - a photo of a basket
-  
+  - a photo of a candle
+  - a photo of scissors
+
   # 악기
   - a photo of a guitar
   - a photo of a piano
   - a photo of a drum
   - a photo of a violin
   - a photo of a flute
-  
+  - a photo of a trumpet
+  - a photo of a trombone
+  - a photo of a saxophone
+  - a photo of a bassoon
+  - a photo of an oboe
+  - a photo of a harp
+  - a photo of a banjo
+  - a photo of an accordion
+
   # 스포츠용품
   - a photo of a ball
   - a photo of a racket
-  - a photo of a bat
-  
+  - a photo of a baseball bat
+  - a photo of a skateboard
+  - a photo of a surfboard
+  - a photo of a dumbbell
+
   # 의류/액세서리
   - a photo of a shoe
   - a photo of a hat
   - a photo of a bag
   - a photo of a backpack
-  - a photo of a umbrella
-  
+  - a photo of an umbrella
+  - a photo of a necklace
+  - a photo of sunglasses
+
   # 전자기기
-  - a photo of a computer
+  - a photo of a laptop
+  - a photo of a monitor
   - a photo of a phone
   - a photo of a camera
   - a photo of a television
   - a photo of a keyboard
   - a photo of a mouse
-  
+  - a photo of a microphone
+  - a photo of headphones
+  - a photo of a projector
+
+  # 공구/장비
+  - a photo of a hammer
+  - a photo of a screwdriver
+  - a photo of a saw
+  - a photo of a drill
+  - a photo of a wrench
+  - a photo of a ladder
+  - a photo of a microscope
+  - a photo of a telescope
+  - a photo of binoculars
+  - a photo of a syringe
+  - a photo of a cannon
+
   # 건축/구조물
   - a photo of a building
   - a photo of a house
@@ -129,7 +162,9 @@ prompts:
   - a photo of a tower
   - a photo of a castle
   - a photo of a church
-  
+  - a photo of a lighthouse
+  - a photo of a windmill
+
   # 자연물/지형
   - a photo of a mountain
   - a photo of a beach
@@ -137,23 +172,22 @@ prompts:
   - a photo of a volcano
   - a photo of a desert
   - a photo of a forest
-  
-  # 도구/장비
-  - a photo of a tool
-  - a photo of a weapon
-  - a photo of a ladder
-  
+
   # 식품
   - a photo of bread
   - a photo of pizza
   - a photo of cake
-  
+  - a photo of a pretzel
+  - a photo of a hamburger
+  - a photo of sushi
+
   # 기타
   - a photo of a book
-  - a photo of a toy
   - a photo of a flag
   - a photo of a sign
   - a photo of a statue
   - a photo of a fountain
   - a photo of a street
   - a photo of a road
+  - a photo of a painting
+  - a photo of a mask
