@@ -41,7 +41,7 @@ int main(int argc, char **argv)
         logger::set_log_file("logs");
         LOG_INFO("classifier started");
 
-        auto cfg = parse_config(argc, argv, "src/classification/config.yaml");
+        auto cfg = parse_config(argc, argv, "config.yaml");
         LOG_DEBUG("config: net=%s input=%s output=%s threshold=%.2f",
                   cfg.net.c_str(), cfg.input.c_str(), cfg.output.c_str(), cfg.threshold);
 

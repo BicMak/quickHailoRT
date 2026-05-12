@@ -154,3 +154,102 @@ However, by running write_thread and read_thread concurrently, input and output 
 read_thread is not polling for results — it is **standing by from the start** so that output is captured as soon as the NPU finishes processing. Once input data is fed in, the NPU automatically processes it and places the result in the output queue; read_thread exists to catch that output the moment it appears.
 
 In short, VStream achieves parallel I/O on top of a synchronous API by separating write and read into distinct threads.
+
+---
+
+## Multi-Model VStream Inference
+
+### Overview
+
+`HailoInfer` supports loading multiple models under a **single VDevice**.  
+Each model is encapsulated in a `HailoModel` struct and stored in a `vector<HailoModel>`.  
+The caller selects which model to run via `model_index`.
+
+```
+VDevice (1 instance — shared chip handle)
+    ├── models[0]  HailoModel
+    │       ├── ConfiguredNetworkGroup
+    │       ├── InputVStream  / OutputVStream
+    │       └── output_vstream_info_by_name
+    │
+    └── models[1]  HailoModel
+            ├── ConfiguredNetworkGroup
+            ├── InputVStream  / OutputVStream
+            └── output_vstream_info_by_name
+```
+
+---
+
+### Why a Single VDevice
+
+Creating one VDevice per model (as the naive approach would do) wastes chip initialization overhead and bypasses the HailoRT scheduler.  
+With a single VDevice, all models share the same scheduler context — if concurrent inference is added later, the scheduler handles time-sharing automatically without code changes.
+
+---
+
+### Constructor
+
+Each entry in `configs` specifies its own HEF path and format types, so models with different input/output formats are handled correctly.
+
+```cpp
+// Multi-model
+HailoInfer infer({
+    {"text_encoder.hef",  HAILO_FORMAT_TYPE_FLOAT32, HAILO_FORMAT_TYPE_FLOAT32},
+    {"image_encoder.hef", HAILO_FORMAT_TYPE_UINT8,   HAILO_FORMAT_TYPE_FLOAT32},
+});
+
+// Single-model (backward-compatible)
+HailoInfer infer("efficientnet_m.hef", HAILO_FORMAT_TYPE_UINT8, HAILO_FORMAT_TYPE_FLOAT32);
+```
+
+Internally the single-model constructor delegates to the multi-model constructor with a one-element vector.
+
+---
+
+### Input Abstraction — MemoryView
+
+`infer()` accepts `hailort::MemoryView` instead of `cv::Mat`, making it input-type agnostic.  
+The caller wraps any contiguous buffer — pixel data, float embeddings, token arrays — into a `MemoryView` and passes it in.
+
+```cpp
+// Image model
+infer.infer(MemoryView(mat.data, mat.total() * mat.elemSize()), buffers, 0);
+
+// Text model (float embeddings)
+infer.infer(MemoryView(embeddings.data(), embeddings.size() * sizeof(float)), buffers, 1);
+```
+
+`MemoryView` is a non-owning pointer+size wrapper — no copy occurs at the boundary.  
+VStream internally handles format conversion after receiving the view.
+
+---
+
+### Per-Model infer() Flow
+
+Each `infer()` call operates identically regardless of model index — only the target `HailoModel` instance differs.
+
+```
+infer(MemoryView, output_buffers, model_index)
+    │
+    ├── models[model_index].input_vstreams[0].write()   ← write_thread
+    │       VStream converts format → HW quantized
+    │
+    ├── [Hailo NPU processes input]
+    │
+    └── models[model_index].output_vstreams[i].read()   ← read_thread per output
+            VStream inverse-converts → output_buffers[i]
+```
+
+---
+
+### Scheduling Behavior
+
+The current usage pattern is **sequential** — text encoder runs once up front, image encoder runs per frame.  
+The HailoRT scheduler is present (VDevice default is Round-Robin) but does not activate meaningfully because both models are never queued simultaneously.
+
+| Scenario | Scheduler behavior |
+|---|---|
+| Sequential calls (current) | Effectively inactive — no contention |
+| Concurrent calls (future) | Round-Robin auto time-sharing across models |
+
+To enable concurrent inference, wrap each `infer()` call in its own thread — no API changes required.

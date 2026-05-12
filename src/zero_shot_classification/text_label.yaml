@@ -1,0 +1,159 @@
+prompts:
+  # 포유류
+  - a photo of a dog
+  - a photo of a cat
+  - a photo of a bear
+  - a photo of a lion
+  - a photo of a tiger
+  - a photo of a wolf
+  - a photo of a fox
+  - a photo of a rabbit
+  - a photo of a squirrel
+  - a photo of a monkey
+  - a photo of an ape
+  - a photo of an elephant
+  - a photo of a giraffe
+  - a photo of a zebra
+  - a photo of a horse
+  - a photo of a cow
+  - a photo of a sheep
+  - a photo of a pig
+  - a photo of a deer
+  - a photo of a bat
+  - a photo of a whale
+  - a photo of a dolphin
+  - a photo of a seal
+  
+  # 조류
+  - a photo of a bird
+  - a photo of an eagle
+  - a photo of an owl
+  - a photo of a parrot
+  - a photo of a chicken
+  - a photo of a duck
+  - a photo of a penguin
+  
+  # 파충류/양서류
+  - a photo of a snake
+  - a photo of a lizard
+  - a photo of a turtle
+  - a photo of a crocodile
+  - a photo of a frog
+  
+  # 어류/수생생물
+  - a photo of a fish
+  - a photo of a shark
+  - a photo of a ray
+  
+  # 절지동물
+  - a photo of an insect
+  - a photo of a spider
+  - a photo of a butterfly
+  - a photo of a beetle
+  - a photo of a bee
+  - a photo of a crab
+  - a photo of a lobster
+  
+  # 식물
+  - a photo of a flower
+  - a photo of a tree
+  - a photo of a mushroom
+  
+  # 과일/채소
+  - a photo of a fruit
+  - a photo of a vegetable
+  
+  # 탈것
+  - a photo of a car
+  - a photo of a bus
+  - a photo of a truck
+  - a photo of a motorcycle
+  - a photo of a bicycle
+  - a photo of a train
+  - a photo of an airplane
+  - a photo of a helicopter
+  - a photo of a boat
+  - a photo of a ship
+  
+  # 가구
+  - a photo of a chair
+  - a photo of a table
+  - a photo of a bed
+  - a photo of a sofa
+  - a photo of a bench
+  
+  # 생활용품
+  - a photo of a bottle
+  - a photo of a cup
+  - a photo of a bowl
+  - a photo of a plate
+  - a photo of a knife
+  - a photo of a spoon
+  - a photo of a pot
+  - a photo of a lamp
+  - a photo of a clock
+  - a photo of a vase
+  - a photo of a basket
+  
+  # 악기
+  - a photo of a guitar
+  - a photo of a piano
+  - a photo of a drum
+  - a photo of a violin
+  - a photo of a flute
+  
+  # 스포츠용품
+  - a photo of a ball
+  - a photo of a racket
+  - a photo of a bat
+  
+  # 의류/액세서리
+  - a photo of a shoe
+  - a photo of a hat
+  - a photo of a bag
+  - a photo of a backpack
+  - a photo of a umbrella
+  
+  # 전자기기
+  - a photo of a computer
+  - a photo of a phone
+  - a photo of a camera
+  - a photo of a television
+  - a photo of a keyboard
+  - a photo of a mouse
+  
+  # 건축/구조물
+  - a photo of a building
+  - a photo of a house
+  - a photo of a bridge
+  - a photo of a tower
+  - a photo of a castle
+  - a photo of a church
+  
+  # 자연물/지형
+  - a photo of a mountain
+  - a photo of a beach
+  - a photo of a waterfall
+  - a photo of a volcano
+  - a photo of a desert
+  - a photo of a forest
+  
+  # 도구/장비
+  - a photo of a tool
+  - a photo of a weapon
+  - a photo of a ladder
+  
+  # 식품
+  - a photo of bread
+  - a photo of pizza
+  - a photo of cake
+  
+  # 기타
+  - a photo of a book
+  - a photo of a toy
+  - a photo of a flag
+  - a photo of a sign
+  - a photo of a statue
+  - a photo of a fountain
+  - a photo of a street
+  - a photo of a road
