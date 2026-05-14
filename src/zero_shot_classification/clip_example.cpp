@@ -28,6 +28,9 @@ using Clock = std::chrono::steady_clock;
 
 static constexpr float LOGIT_SCALE = 4.6051702f;
 
+static std::vector<float> dot_logits(const std::vector<float> &img_emb,
+                                     const std::vector<std::vector<float>> &text_embs);
+
 static void normalize_vec(std::vector<float> &v) {
     float n = std::sqrt(std::inner_product(v.begin(), v.end(), v.begin(), 0.0f));
     if (n > 0.0f)
@@ -104,10 +107,12 @@ static ImageInferResult classify_image(
     hailo_utils::preprocess_image(org, preprocessed, target_w, target_h, false);
     auto t1 = Clock::now();
 
-    std::vector<MemoryView> outs{ MemoryView(img_out_raw.data(), img_out_raw.size()) };
+    std::vector<MemoryView> outs{
+         MemoryView(img_out_raw.data(), img_out_raw.size())};
     auto status = model.infer(
-        MemoryView(preprocessed.data, preprocessed.total() * preprocessed.elemSize()),
-        outs, model_index);
+        MemoryView(preprocessed.data,
+                   preprocessed.total() * preprocessed.elemSize()),
+                   outs, model_index);
     auto t2 = Clock::now();
     if (status != HAILO_SUCCESS)
         throw std::runtime_error("image infer failed");
@@ -127,6 +132,67 @@ static ImageInferResult classify_image(
         std::chrono::duration<double, std::milli>(t2 - t1).count(),
         std::chrono::duration<double, std::milli>(t3 - t2).count(),
     };
+}
+
+static std::vector<ImageInferResult> classify_batch(
+    const std::vector<std::filesystem::path> &paths,
+    HailoInfer &model, size_t model_index,
+    const std::vector<std::string> &prompts,
+    const std::vector<std::vector<float>> &text_embeddings,
+    uint32_t target_w, uint32_t target_h,
+    size_t img_emb_count) {
+
+    const size_t n = paths.size();
+    const size_t frame_bytes = img_emb_count * sizeof(float);
+
+    auto t0 = Clock::now();
+    std::vector<cv::Mat> preprocessed(n);
+    for (size_t i = 0; i < n; ++i) {
+        cv::Mat org = cv::imread(paths[i].string());
+        if (org.empty())
+            throw std::runtime_error("cannot read image: " + paths[i].string());
+        hailo_utils::preprocess_image(org, preprocessed[i], target_w, target_h, false);
+    }
+    auto t1 = Clock::now();
+    double pre_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+
+    std::vector<MemoryView> inputs;
+    inputs.reserve(n);
+    for (auto &m : preprocessed)
+        inputs.emplace_back(m.data, m.total() * m.elemSize());
+
+    std::vector<std::vector<uint8_t>> raw_bufs(n, std::vector<uint8_t>(frame_bytes));
+    std::vector<std::vector<MemoryView>> out_views(n);
+    for (size_t i = 0; i < n; ++i)
+        out_views[i].emplace_back(raw_bufs[i].data(), frame_bytes);
+
+    auto status = model.infer_batch(inputs, out_views, model_index);
+    auto t2 = Clock::now();
+    double infer_ms = std::chrono::duration<double, std::milli>(t2 - t1).count();
+
+    if (status != HAILO_SUCCESS)
+        throw std::runtime_error("image batch infer failed");
+
+    std::vector<ImageInferResult> results;
+    results.reserve(n);
+    for (size_t i = 0; i < n; ++i) {
+        auto t3 = Clock::now();
+        const float *f = reinterpret_cast<const float*>(raw_bufs[i].data());
+        std::vector<float> img_emb(f, f + img_emb_count);
+        normalize_vec(img_emb);
+        auto logits = dot_logits(img_emb, text_embeddings);
+        auto probs  = softmax(logits);
+        size_t best = std::distance(probs.begin(), std::max_element(probs.begin(), probs.end()));
+        auto t4 = Clock::now();
+        ImageInferResult r;
+        r.label          = prompts[best];
+        r.confidence     = probs[best];
+        r.preprocess_ms  = pre_ms / n;
+        r.infer_ms       = infer_ms / n;
+        r.postprocess_ms = std::chrono::duration<double, std::milli>(t4 - t3).count();
+        results.push_back(std::move(r));
+    }
+    return results;
 }
 
 static std::vector<std::vector<float>> encode_texts(
@@ -264,6 +330,8 @@ int main(int argc, char **argv) try {
     std::vector<double> preprocess_ms, image_infer_ms, postprocess_ms, image_total_ms;
     size_t processed = 0;
 
+    constexpr size_t BATCH_SIZE = 10;
+
     auto run_one = [&](const std::filesystem::path &path) {
         auto t_start = Clock::now();
         ImageInferResult r;
@@ -288,11 +356,47 @@ int main(int argc, char **argv) try {
                  path.filename().c_str(), r.label.c_str(), r.confidence * 100.0f);
     };
 
-    if (std::filesystem::is_directory(cfg.input)) {
-        for (const auto &entry : std::filesystem::directory_iterator(cfg.input)) {
-            if (hailo_utils::is_image_file(entry.path().string()))
-                run_one(entry.path());
+    auto run_batch = [&](const std::vector<std::filesystem::path> &batch_paths) {
+        auto t_start = Clock::now();
+        std::vector<ImageInferResult> results;
+        try {
+            results = classify_batch(batch_paths, model, IMAGE_IDX, cfg.prompts,
+                                     text_embeddings, target_w, target_h, img_emb_count);
+        } catch (const std::exception &e) {
+            LOG_WARN("batch failed: %s — falling back to single", e.what());
+            for (const auto &p : batch_paths) run_one(p);
+            return;
         }
+        double total_ms = std::chrono::duration<double, std::milli>(Clock::now() - t_start).count();
+
+        LOG_INFO("[batch] n=%zu  total=%.2f ms  avg_per_frame=%.2f ms  throughput=%.2f fps",
+                 results.size(), total_ms, total_ms / results.size(),
+                 1000.0 * results.size() / total_ms);
+
+        for (size_t i = 0; i < results.size(); ++i) {
+            const auto &r = results[i];
+            preprocess_ms.push_back(r.preprocess_ms);
+            image_infer_ms.push_back(r.infer_ms);
+            postprocess_ms.push_back(r.postprocess_ms);
+            image_total_ms.push_back(total_ms / results.size());
+            ++processed;
+            LOG_INFO("%s -> %s (%.2f%%)",
+                     batch_paths[i].filename().c_str(), r.label.c_str(), r.confidence * 100.0f);
+        }
+    };
+
+    if (std::filesystem::is_directory(cfg.input)) {
+        std::vector<std::filesystem::path> batch;
+        for (const auto &entry : std::filesystem::directory_iterator(cfg.input)) {
+            if (!hailo_utils::is_image_file(entry.path().string())) continue;
+            batch.push_back(entry.path());
+            if (batch.size() == BATCH_SIZE) {
+                run_batch(batch);
+                batch.clear();
+            }
+        }
+        if (!batch.empty())
+            run_batch(batch);
     } else {
         run_one(cfg.input);
     }

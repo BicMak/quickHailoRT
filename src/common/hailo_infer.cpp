@@ -177,3 +177,61 @@ hailo_status HailoInfer::infer(
     return write_status != HAILO_SUCCESS ? write_status
          : *std::max_element(read_statuses.begin(), read_statuses.end());
 }
+
+hailo_status HailoInfer::infer_batch(
+    const std::vector<hailort::MemoryView> &inputs,
+    std::vector<std::vector<hailort::MemoryView>> &output_buffers,
+    size_t model_index) {
+
+    auto &state = this->models[model_index];
+    const size_t n = inputs.size();
+
+    if (output_buffers.size() != n) {
+        LOG_ERROR("infer_batch: output_buffers.size()=%zu != inputs.size()=%zu",
+                  output_buffers.size(), n);
+        return HAILO_INVALID_ARGUMENT;
+    }
+    for (size_t i = 0; i < n; ++i) {
+        if (output_buffers[i].size() != state.output_vstreams.size()) {
+            LOG_ERROR("infer_batch: output_buffers[%zu] vstream count mismatch", i);
+            return HAILO_INVALID_ARGUMENT;
+        }
+    }
+
+    LOG_TRACE("infer_batch start: model_index=%zu n_frames=%zu", model_index, n);
+
+    auto t0 = std::chrono::steady_clock::now();
+
+    // write all frames first, read all outputs after — keeps HW pipeline full
+    hailo_status write_status = HAILO_SUCCESS;
+    std::thread write_thread([&]() {
+        for (size_t i = 0; i < n && write_status == HAILO_SUCCESS; ++i)
+            write_status = state.input_vstreams[0].write(inputs[i]);
+    });
+
+    std::vector<hailo_status> read_statuses(state.output_vstreams.size(), HAILO_SUCCESS);
+    std::vector<std::thread> read_threads;
+    for (size_t vs = 0; vs < state.output_vstreams.size(); ++vs) {
+        read_threads.emplace_back([&, vs]() {
+            for (size_t i = 0; i < n && read_statuses[vs] == HAILO_SUCCESS; ++i)
+                read_statuses[vs] = state.output_vstreams[vs].read(output_buffers[i][vs]);
+        });
+    }
+
+    write_thread.join();
+    auto t1 = std::chrono::steady_clock::now();
+    for (auto &t : read_threads) t.join();
+    auto t2 = std::chrono::steady_clock::now();
+
+    double write_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    double total_ms = std::chrono::duration<double, std::milli>(t2 - t0).count();
+    LOG_INFO("[infer_batch] model=%zu  n=%zu  write=%.2f ms  total=%.2f ms  avg_per_frame=%.2f ms",
+             model_index, n, write_ms, total_ms, total_ms / n);
+
+    auto temp = this->device->get_chip_temperature();
+    if (temp) LOG_INFO("temperature: ts0=%.1f C ts1=%.1f C", temp->ts0_temperature, temp->ts1_temperature);
+
+    LOG_TRACE("infer_batch done: model_index=%zu n_frames=%zu", model_index, n);
+    return write_status != HAILO_SUCCESS ? write_status
+         : *std::max_element(read_statuses.begin(), read_statuses.end());
+}

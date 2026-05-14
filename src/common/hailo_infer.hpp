@@ -49,6 +49,13 @@ class HailoInfer {
             const hailort::MemoryView &input,
             std::vector<hailort::MemoryView> &output_buffers,
             size_t model_index = 0);
+
+        // infer_batch: N frames in, N×output_vstreams out (FIFO order guaranteed)
+        // output_buffers[i] = outputs for frame i, each pre-allocated to frame_size
+        hailo_status infer_batch(
+            const std::vector<hailort::MemoryView> &inputs,
+            std::vector<std::vector<hailort::MemoryView>> &output_buffers,
+            size_t model_index = 0);
 };
 
 #endif /* _HAILO_ASYNC_INFERENCE_HPP_ */

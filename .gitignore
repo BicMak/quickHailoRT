@@ -37,11 +37,11 @@ Makefile
 # ── Test / inference output ──────────────────────────────────────────────────
 test_output.jpg
 local_data/
+docs/
 logs/
 
 # ── Misc ─────────────────────────────────────────────────────────────────────
 hailo-apps/
-docs/
 imagenet-sample-images/
 .claude/
 .DS_Store
