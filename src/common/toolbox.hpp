@@ -37,6 +37,39 @@ namespace hailo_utils {
         bool is_camera    = false;
     };
 
+    struct VisualizationParams {
+        float score_thresh      = 0.50f;
+        int   max_boxes_to_draw = 0;    // 0 = no limit
+    };
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // OBJECT DETECTION
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    struct NamedBbox {
+        hailo_bbox_float32_t bbox;
+        size_t class_id;
+    };
+
+    cv::Rect get_bbox_coordinates(const hailo_bbox_float32_t &bbox,
+                                  int frame_width, int frame_height);
+    cv::Rect get_bbox_coordinates_sahi(const hailo_bbox_float32_t &bbox,
+                                       int slice_width, int slice_height,
+                                       int offset_x,    int offset_y);
+    void draw_label(cv::Mat &frame, const std::string &label,
+                    const cv::Point &top_left, const cv::Scalar &color);
+    void draw_single_bbox(cv::Mat &frame, const NamedBbox &named_bbox,
+                          const cv::Scalar &color);
+    void draw_bounding_boxes(cv::Mat &frame, const std::vector<NamedBbox> &bboxes,
+                             const VisualizationParams &vis);
+    std::vector<NamedBbox> parse_nms_data(uint8_t *data, size_t max_class_count);
+    void initialize_class_colors(std::unordered_map<int, cv::Scalar> &class_colors);
+
+    // Cross-slice Non-Maximum Merging: groups overlapping boxes of the same class
+    // by IoU threshold and merges each group into one score-weighted average box.
+    std::vector<NamedBbox> apply_nmm(const std::vector<NamedBbox> &bboxes,
+                                     float iou_threshold = 0.5f);
+
     struct CommandLineArgs {
         std::string net;
         std::string input_dir;

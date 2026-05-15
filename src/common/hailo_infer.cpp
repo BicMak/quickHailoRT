@@ -104,6 +104,10 @@ std::vector<hailo_vstream_info_t> HailoInfer::get_output_infos(size_t model_inde
     return infos;
 }
 
+size_t HailoInfer::get_output_frame_size(size_t output_index, size_t model_index) const {
+    return this->models[model_index].output_vstreams[output_index].get_frame_size();
+}
+
 hailo_format_type_t HailoInfer::get_input_type(size_t model_index) const {
     return this->models[model_index].config.input_type;
 }

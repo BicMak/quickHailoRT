@@ -18,3 +18,13 @@ zero_shot_classification:
   embedding_npy: clip_vit_b_16_token_embedding.npy
   bpe_vocab: src/zero_shot_classification/tokenizer/bpe_simple_vocab_16e6.txt
   prompts_file: src/zero_shot_classification/text_label.yaml
+
+sahi_object_detection:
+  net:              src/SAHI_object_detection/hef/yolov8n.hef
+  input:            src/SAHI_object_detection/image
+  output:           src/SAHI_object_detection/output
+  threshold:        0.50
+  nmm_iou_threshold: 0.10
+  overlap_height:   0.20
+  overlap_width:    0.20
+

@@ -13,10 +13,31 @@ if [[ ! -f "${CONFIG}" ]]; then
     exit 1
 fi
 
-TASK=$(grep '^task:' "${CONFIG}" | awk '{print $2}' | tr -d '[:space:]')
+TASK=""
+PASSTHRU=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --task)
+            TASK="$2"
+            shift 2
+            ;;
+        --task=*)
+            TASK="${1#--task=}"
+            shift
+            ;;
+        *)
+            PASSTHRU+=("$1")
+            shift
+            ;;
+    esac
+done
 
 if [[ -z "${TASK}" ]]; then
-    echo "-E- 'task' field not found in config.yaml"
+    TASK=$(grep '^task:' "${CONFIG}" | awk '{print $2}' | tr -d '[:space:]')
+fi
+
+if [[ -z "${TASK}" ]]; then
+    echo "-E- task not specified (use --task <name> or set 'task:' in config.yaml)"
     exit 1
 fi
 
@@ -31,9 +52,13 @@ case "${TASK}" in
         TASK_DIR="${ROOT_DIR}/src/zero_shot_classification"
         BIN="${TASK_DIR}/build/${ARCH}/zero_shot_classification"
         ;;
+    sahi_object_detection)
+        TASK_DIR="${ROOT_DIR}/src/SAHI_object_detection"
+        BIN="${TASK_DIR}/build/${ARCH}/SAHI_object_detection"
+        ;;
     *)
         echo "-E- Unknown task: '${TASK}'"
-        echo "    Available: classification, zero_shot_classification"
+        echo "    Available: classification, zero_shot_classification, sahi_object_detection"
         exit 1
         ;;
 esac
@@ -52,6 +77,6 @@ fi
 [[ -f "${TASK_DIR}/hailort.log" ]] && rm "${TASK_DIR}/hailort.log"
 
 echo ""
-echo "-I- Running: ${BIN} $*"
+echo "-I- Running: ${BIN} ${PASSTHRU[*]}"
 cd "${ROOT_DIR}"
-"${BIN}" "$@"
+"${BIN}" "${PASSTHRU[@]}"

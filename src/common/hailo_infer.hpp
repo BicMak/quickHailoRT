@@ -40,6 +40,7 @@ class HailoInfer {
 
         hailo_vstream_info_t get_input_info(size_t model_index = 0) const;
         std::vector<hailo_vstream_info_t> get_output_infos(size_t model_index = 0) const;
+        size_t get_output_frame_size(size_t output_index = 0, size_t model_index = 0) const;
         hailo_format_type_t get_input_type(size_t model_index = 0) const;
         hailo_format_type_t get_output_type(size_t model_index = 0) const;
 

@@ -136,4 +136,90 @@ inline ZeroShotConfig parse_zeroshot_config(int argc, char **argv,
     return cfg;
 }
 
+struct ObjDetConfig : BaseConfig {
+    std::string net;
+    float       threshold  = 0.50f;
+    size_t      batch_size = 1;
+};
+
+inline ObjDetConfig load_objdet_config(const std::string &yaml_path) {
+    ObjDetConfig cfg;
+    if (!std::filesystem::exists(yaml_path)) return cfg;
+
+    YAML::Node root = YAML::LoadFile(yaml_path);
+    load_base_config(cfg, root);
+
+    YAML::Node node = root["object_detection"];
+    if (!node) return cfg;
+    if (node["net"])        cfg.net        = node["net"].as<std::string>();
+    if (node["threshold"])  cfg.threshold  = node["threshold"].as<float>();
+    if (node["batch_size"]) cfg.batch_size = node["batch_size"].as<size_t>();
+    return cfg;
+}
+
+inline ObjDetConfig parse_objdet_config(int argc, char **argv,
+                                        const std::string &yaml_path = "config.yaml") {
+    ObjDetConfig cfg = load_objdet_config(yaml_path);
+
+    CLI::App app{"Hailo Object Detection"};
+    add_base_options(app, cfg);
+    app.add_option("--net",        cfg.net,        "HEF model path");
+    app.add_option("--threshold",  cfg.threshold,  "Score threshold");
+    app.add_option("--batch-size", cfg.batch_size, "Batch size");
+
+    try {
+        app.parse(argc, argv);
+    } catch (const CLI::ParseError &e) {
+        std::exit(app.exit(e));
+    }
+
+    return cfg;
+}
+
+struct SahiObjDetConfig : BaseConfig {
+    std::string net;
+    float       threshold          = 0.50f;
+    float       nmm_iou_threshold  = 0.50f;
+    float       overlap_height     = 0.20f;
+    float       overlap_width      = 0.20f;
+};
+
+inline SahiObjDetConfig load_sahi_config(const std::string &yaml_path) {
+    SahiObjDetConfig cfg;
+    if (!std::filesystem::exists(yaml_path)) return cfg;
+
+    YAML::Node root = YAML::LoadFile(yaml_path);
+    load_base_config(cfg, root);
+
+    YAML::Node node = root["sahi_object_detection"];
+    if (!node) return cfg;
+    if (node["net"])               cfg.net               = node["net"].as<std::string>();
+    if (node["threshold"])         cfg.threshold         = node["threshold"].as<float>();
+    if (node["nmm_iou_threshold"]) cfg.nmm_iou_threshold = node["nmm_iou_threshold"].as<float>();
+    if (node["overlap_height"])    cfg.overlap_height    = node["overlap_height"].as<float>();
+    if (node["overlap_width"])     cfg.overlap_width     = node["overlap_width"].as<float>();
+    return cfg;
+}
+
+inline SahiObjDetConfig parse_sahi_config(int argc, char **argv,
+                                          const std::string &yaml_path = "config.yaml") {
+    SahiObjDetConfig cfg = load_sahi_config(yaml_path);
+
+    CLI::App app{"Hailo SAHI Object Detection"};
+    add_base_options(app, cfg);
+    app.add_option("--net",              cfg.net,              "HEF model path");
+    app.add_option("--threshold",        cfg.threshold,        "Score threshold");
+    app.add_option("--nmm-iou",          cfg.nmm_iou_threshold,"NMM IoU threshold");
+    app.add_option("--overlap-height",   cfg.overlap_height,   "Slice overlap ratio (height)");
+    app.add_option("--overlap-width",    cfg.overlap_width,    "Slice overlap ratio (width)");
+
+    try {
+        app.parse(argc, argv);
+    } catch (const CLI::ParseError &e) {
+        std::exit(app.exit(e));
+    }
+
+    return cfg;
+}
+
 } // namespace hailo_utils

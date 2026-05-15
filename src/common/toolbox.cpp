@@ -1,5 +1,6 @@
 #include "toolbox.hpp"
 #include "logging.hpp"
+#include "labels/coco_eighty.hpp"
 #include <algorithm>
 #include <iomanip>
 #include <iostream>
@@ -240,6 +241,174 @@ void print_inference_statistics(std::chrono::duration<double> inference_time,
               << "-I- Latency:      " << latency << " ms\n"
               << "-I-----------------------------------------------\n" << color::RESET
               << color::BOLDBLUE << "-I- Total run time: " << total_time.count() << " sec\n" << color::RESET;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OBJECT DETECTION
+// ─────────────────────────────────────────────────────────────────────────────
+
+cv::Rect get_bbox_coordinates(const hailo_bbox_float32_t &bbox,
+                               int frame_width, int frame_height) {
+    int x1 = static_cast<int>(bbox.x_min * frame_width);
+    int y1 = static_cast<int>(bbox.y_min * frame_height);
+    int x2 = static_cast<int>(bbox.x_max * frame_width);
+    int y2 = static_cast<int>(bbox.y_max * frame_height);
+    return cv::Rect(cv::Point(x1, y1), cv::Point(x2, y2));
+}
+
+cv::Rect get_bbox_coordinates_sahi(const hailo_bbox_float32_t &bbox,
+                                    int slice_width, int slice_height,
+                                    int offset_x,    int offset_y) {
+    int x1 = static_cast<int>(bbox.x_min * slice_width)  + offset_x;
+    int y1 = static_cast<int>(bbox.y_min * slice_height) + offset_y;
+    int x2 = static_cast<int>(bbox.x_max * slice_width)  + offset_x;
+    int y2 = static_cast<int>(bbox.y_max * slice_height) + offset_y;
+    return cv::Rect(cv::Point(x1, y1), cv::Point(x2, y2));
+}
+
+void draw_label(cv::Mat &frame, const std::string &label,
+                const cv::Point &top_left, const cv::Scalar &color) {
+    int baseLine = 0;
+    cv::Size label_size = cv::getTextSize(label, cv::FONT_HERSHEY_TRIPLEX, 0.6, 1, &baseLine);
+    int top = std::max(top_left.y, label_size.height);
+    cv::rectangle(frame,
+                  cv::Point(top_left.x, top + baseLine),
+                  cv::Point(top_left.x + label_size.width, top - label_size.height),
+                  color, cv::FILLED);
+    cv::putText(frame, label, cv::Point(top_left.x, top),
+                cv::FONT_HERSHEY_TRIPLEX, 0.6, cv::Scalar(0, 0, 0), 1);
+}
+
+void draw_single_bbox(cv::Mat &frame, const NamedBbox &named_bbox,
+                      const cv::Scalar &color) {
+    auto bbox_rect = get_bbox_coordinates(named_bbox.bbox, frame.cols, frame.rows);
+    cv::rectangle(frame, bbox_rect, color, 2);
+
+    std::string score_str = std::to_string(named_bbox.bbox.score * 100).substr(0, 4) + "%";
+    auto it = common::coco_eighty.find(static_cast<uint8_t>(named_bbox.class_id));
+    std::string class_name = (it != common::coco_eighty.end())
+        ? it->second
+        : "cls" + std::to_string(named_bbox.class_id);
+    std::string label = class_name + " " + score_str;
+    draw_label(frame, label, bbox_rect.tl(), color);
+}
+
+void draw_bounding_boxes(cv::Mat &frame, const std::vector<NamedBbox> &bboxes,
+                         const VisualizationParams &vis) {
+    const size_t max_draw = (vis.max_boxes_to_draw > 0)
+        ? std::min(static_cast<size_t>(vis.max_boxes_to_draw), bboxes.size())
+        : bboxes.size();
+
+    size_t drawn = 0;
+    for (const auto &nb : bboxes) {
+        if (drawn >= max_draw) break;
+        if (nb.bbox.score < vis.score_thresh) continue;
+
+        const cv::Scalar color = COLORS[nb.class_id % COLORS.size()];
+        draw_single_bbox(frame, nb, color);
+        ++drawn;
+    }
+}
+
+std::vector<NamedBbox> parse_nms_data(uint8_t *data, size_t max_class_count) {
+    std::vector<NamedBbox> bboxes;
+    size_t offset = 0;
+
+    for (size_t class_id = 0; class_id < max_class_count; ++class_id) {
+        auto det_count = static_cast<uint32_t>(*reinterpret_cast<float32_t*>(data + offset));
+        offset += sizeof(float32_t);
+
+        for (size_t j = 0; j < det_count; ++j) {
+            NamedBbox nb;
+            nb.bbox     = *reinterpret_cast<hailo_bbox_float32_t*>(data + offset);
+            nb.class_id = class_id + 1;
+            offset += sizeof(hailo_bbox_float32_t);
+            bboxes.push_back(nb);
+        }
+    }
+    return bboxes;
+}
+
+void initialize_class_colors(std::unordered_map<int, cv::Scalar> &class_colors) {
+    for (int cls = 0; cls <= 80; ++cls)
+        class_colors[cls] = COLORS[cls % COLORS.size()];
+}
+
+static float bbox_iou(const hailo_bbox_float32_t &a, const hailo_bbox_float32_t &b) {
+    float ix1 = std::max(a.x_min, b.x_min);
+    float iy1 = std::max(a.y_min, b.y_min);
+    float ix2 = std::min(a.x_max, b.x_max);
+    float iy2 = std::min(a.y_max, b.y_max);
+    float inter = std::max(0.f, ix2 - ix1) * std::max(0.f, iy2 - iy1);
+    if (inter == 0.f) return 0.f;
+    float area_a = (a.x_max - a.x_min) * (a.y_max - a.y_min);
+    float area_b = (b.x_max - b.x_min) * (b.y_max - b.y_min);
+    return inter / (area_a + area_b - inter);
+}
+
+// todo -> 나중에 해당함수에서 limits로 사이즈 정해둬야함
+std::vector<NamedBbox> apply_nmm(
+    const std::vector<NamedBbox> &bboxes,
+    float iou_threshold) {
+
+    if (bboxes.empty()) return {};
+
+    LOG_DEBUG("[nmm] input=%zu boxes  iou_thresh=%.2f", bboxes.size(), iou_threshold);
+
+    // group by class, sort each group by score desc
+    std::unordered_map<size_t, std::vector<size_t>> by_class;
+    for (size_t i = 0; i < bboxes.size(); ++i)
+        by_class[bboxes[i].class_id].push_back(i);
+
+    std::vector<NamedBbox> result;
+    result.reserve(bboxes.size());
+    for (auto &[cls, indices] : by_class) {
+        size_t in_count = indices.size();
+        std::sort(indices.begin(), indices.end(),
+                  [&](size_t a, size_t b){ return bboxes[a].bbox.score > bboxes[b].bbox.score; });
+
+        std::vector<bool> merged(indices.size(), false);
+        size_t before = result.size();
+        for (size_t i = 0; i < indices.size(); ++i) {
+            if (merged[i]) continue;
+
+            // collect group: this box + all overlapping unmerged boxes
+            std::vector<size_t> group = {indices[i]};
+            for (size_t j = i + 1; j < indices.size(); ++j) {
+                if (!merged[j] && bbox_iou(bboxes[indices[i]].bbox, bboxes[indices[j]].bbox) > iou_threshold) {
+                    group.push_back(indices[j]);
+                    merged[j] = true;
+                }
+            }
+
+            // union: smallest top-left, largest bottom-right
+            float x_min = bboxes[group[0]].bbox.x_min;
+            float y_min = bboxes[group[0]].bbox.y_min;
+            float x_max = bboxes[group[0]].bbox.x_max;
+            float y_max = bboxes[group[0]].bbox.y_max;
+            for (size_t idx : group) {
+                x_min = std::min(x_min, bboxes[idx].bbox.x_min);
+                y_min = std::min(y_min, bboxes[idx].bbox.y_min);
+                x_max = std::max(x_max, bboxes[idx].bbox.x_max);
+                y_max = std::max(y_max, bboxes[idx].bbox.y_max);
+            }
+
+            NamedBbox merged_box;
+            merged_box.class_id   = cls;
+            merged_box.bbox.x_min = x_min;
+            merged_box.bbox.y_min = y_min;
+            merged_box.bbox.x_max = x_max;
+            merged_box.bbox.y_max = y_max;
+            merged_box.bbox.score = bboxes[indices[i]].bbox.score;
+            result.push_back(merged_box);
+        }
+
+        LOG_TRACE("[nmm] cls=%zu  in=%zu → out=%zu  (merged %zu)",
+                  cls, in_count, result.size() - before, in_count - (result.size() - before));
+    }
+
+    LOG_DEBUG("[nmm] output=%zu boxes  (removed %zu)", result.size(), bboxes.size() - result.size());
+    return result;
 }
 
 } // namespace hailo_utils
