@@ -1,5 +1,0 @@
-timestamp,level,file,line,func,message
-2026-05-11 15:02:01.066,INFO ,classifier.cpp,42,main,"classifier started"
-2026-05-11 15:02:01.066,DEBUG,classifier.cpp,45,main,"config: net=src/classification/hef/efficientnet_m.hef input=local_data/input_img output=local_data/output_img threshold=0.30"
-2026-05-11 15:02:01.066,TRACE,hailo_infer.cpp,12,HailoInfer,"creating VDevice"
-2026-05-11 15:02:01.098,ERROR,classifier.cpp,104,main,"exception: Expected::expect() failed with status=36. Failed to create VDevice"

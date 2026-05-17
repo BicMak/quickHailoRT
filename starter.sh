@@ -43,18 +43,41 @@ fi
 
 echo "-I- task=${TASK}  arch=${ARCH}  LOG_LEVEL=${LOG_LEVEL}"
 
+# Extract a scalar value from a top-level YAML section in config.yaml.
+# usage: yaml_get <section> <key>
+yaml_get() {
+    local section="$1" key="$2"
+    awk -v sec="${section}" -v k="${key}" '
+        $0 ~ "^"sec":"           { in_sec=1; next }
+        in_sec && /^[^[:space:]]/ { in_sec=0 }
+        in_sec && $1 == k":"      { sub("^[[:space:]]*"k":[[:space:]]*","",$0); sub("[[:space:]]*#.*","",$0); print; exit }
+    ' "${CONFIG}"
+}
+
+TARGET=""
 case "${TASK}" in
     classification)
         TASK_DIR="${ROOT_DIR}/src/classification"
-        BIN="${TASK_DIR}/build/${ARCH}/classifier"
+        TARGET="classifier"
         ;;
     zero_shot_classification)
         TASK_DIR="${ROOT_DIR}/src/zero_shot_classification"
-        BIN="${TASK_DIR}/build/${ARCH}/zero_shot_classification"
+        TARGET="zero_shot_classification"
         ;;
     sahi_object_detection)
         TASK_DIR="${ROOT_DIR}/src/SAHI_object_detection"
-        BIN="${TASK_DIR}/build/${ARCH}/SAHI_object_detection"
+        MODE=$(yaml_get "sahi_object_detection" "mode")
+        case "${MODE}" in
+            image) TARGET="SAHI_object_detection" ;;
+            video) TARGET="SAHI_object_detection_video" ;;
+            "")
+                echo "-E- sahi_object_detection.mode not set in config.yaml (expected: image|video)"
+                exit 1 ;;
+            *)
+                echo "-E- Invalid sahi_object_detection.mode '${MODE}' (expected: image|video)"
+                exit 1 ;;
+        esac
+        echo "-I- sahi mode=${MODE}"
         ;;
     *)
         echo "-E- Unknown task: '${TASK}'"
@@ -63,11 +86,13 @@ case "${TASK}" in
         ;;
 esac
 
-echo "-I- Building ${TASK_DIR}"
+BIN="${TASK_DIR}/build/${ARCH}/${TARGET}"
+
+echo "-I- Building ${TASK_DIR} (target=${TARGET})"
 cd "${TASK_DIR}"
 mkdir -p "build/${ARCH}"
 cmake -S. -B"build/${ARCH}" -DLOG_LEVEL=${LOG_LEVEL}
-cmake --build "build/${ARCH}" -j$(nproc)
+cmake --build "build/${ARCH}" -j$(nproc) --target "${TARGET}"
 
 if [[ ! -x "${BIN}" ]]; then
     echo "-E- Build artifact not found: ${BIN}"

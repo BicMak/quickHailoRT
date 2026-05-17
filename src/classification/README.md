@@ -37,6 +37,7 @@ task: classification
 
 ```yaml
 classification:
+  input: images/                 # relative to paths.input_root
   net_path: src/classification/hef/
   net: efficientnet_m.hef
   threshold: 0.30
@@ -46,5 +47,5 @@ Results below `threshold` confidence are discarded.
 
 ## Logs
 
-Saved as `logs/YYYY-MM-DD_HHMMSS.csv` on every run.
+Saved as `local_data/output/classification/logs/YYYY-MM-DD_HHMMSS.csv` on every run.
 

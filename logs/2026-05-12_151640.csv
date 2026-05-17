@@ -1,3 +1,0 @@
-timestamp,level,file,line,func,message
-2026-05-12 15:16:40.200,INFO ,clip_example.cpp,162,main,"zero_shot_classification started"
-2026-05-12 15:16:40.200,ERROR,clip_example.cpp,168,main,"text_encoder and image_encoder paths required"

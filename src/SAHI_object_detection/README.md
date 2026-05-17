@@ -1,192 +1,104 @@
-Object Detection
-================
-This example performs object detection using a Hailo-8, Hailo-8L, or Hailo-10H device.
-It receives a HEF and images/video/camera as input, and returns the image\video with annotations of detected objects and bounding boxes.
+SAHI Object Detection
+=====================
 
-![output example](./obj_det.gif)
+An object detection example that runs on Hailo-8 / Hailo-8L / Hailo-10H devices using the **SAHI (Sliced Aided Hyper Inference)** technique.
+The input image/video is split into small slices that are inferred independently; the detections are then remapped back to the original coordinate space and merged with NMM (Non-Maximum Merging) to remove duplicates. This outperforms plain single-shot inference on high-resolution footage that contains many small objects.
 
-Requirements
-------------
-- HailoRT  
-  - For Hailo-8: `HailoRT==4.23.0`  
-  - For Hailo-10: `HailoRT==5.3.0`
+Two binaries are produced:
 
-- **Linux Dependencies**
-    - OpenCV >= 4.5.4
-        ```shell script
-        sudo apt-get install -y libopencv-dev python3-opencv
-        ```
-    - CMake >= 3.16
-    - Gtk
-    - g++-9
-        ```shell script
-        sudo apt-get install gcc-9 g++-9
-        ```
+- `object_detection`        — processes a single image or a folder of images
+- `object_detection_video`  — processes a video file (with per-frame EMA latency / FPS overlay)
 
-- **Windows Dependencies**
 
-    - OpenCV >= 4.5.4
-        ```shell script
-        vcpkg install opencv
-        ```
-    - CMake >= 3.16
-    - Visual Studio with MSVC C++ build tools
+Implementation Highlights
+-------------------------
 
-Supported Models
-----------------
-This example expects the HEF to contain HailoRT-Postprocess. 
+### Slicing and merging
+- The input frame is cut into overlapping slices sized to the model's input resolution. `overlap_height` / `overlap_width` (0.0–1.0) control how much adjacent slices overlap so that objects sitting on a slice boundary are still captured.
+- Each slice is inferred separately. Detections are remapped to the original image coordinates and then merged with **NMM** (Non-Maximum Merging) using `nmm_iou_threshold` as the IoU cutoff for treating two boxes as the same object.
+- Class scores below `threshold` are discarded before merging.
 
-Because of that, this example only supports detections models that allow HailoRT-Postprocess:
+### Supported models
+The HEF must include the HailoRT Post-process (NMS) op, so only detection models compatible with HailoRT-Postprocess are supported:
+
 - YOLOv5, YOLOv6, YOLOv7, YOLOv8, YOLOv10, YOLOv11
 - YOLOX
 - SSD
 - CenterNet
 
+Default model: `yolov8m.hef`.
 
-Usage
------
-0. Make sure you have installed all of the requirements.
+### Video pipeline
+`object_detection_video` runs the following stages per frame:
 
-1. Clone the repository:
-    ```shell script
-    git clone https://github.com/hailo-ai/hailo-apps.git
-    cd hailo-apps/hailo_apps/cpp/object_detection
-    ``` 
-
-2. Compile the project on the development machine  
-
-    - **Linux**
-        ```shell script
-        ./build.sh
-        ```
-    - **Windows**
-        ```shell script
-        cmake -S. -Bbuild -DCMAKE_FIND_PACKAGE_RESOLVE_SYMLINKS=True
-        cmake --build build --config Release
-        ```
-
-    This creates the directory hierarchy build/Release and compile an executable file called object_detection
-
-3. Run the example:
-
-    - **Linux**
-        ```shell script
-        ./build/Release/object_detection --net <hef_path> --input <image_or_video_or_camera_path>
-        ```
-    - **Windows**
-        ```shell script
-        .\build\Release\object_detection.exe --net <hef_path> --input <image_or_video_or_camera_path>
-        ```
-
-The output results will be saved under a folder named `output`, or in the directory specified by `--output-dir`.
-
-Arguments
----------
-
-- `-n, --net`: 
-    - A **model name** (e.g., `yolov8n`) → the script will automatically download and resolve the correct HEF for your device.
-    - A **file path** to a local HEF → the script will use the specified network directly.
-- `-i, --input`:
-  - An **input source** such as an image (`bus.jpg`), a video (`video.mp4`), a directory of images, or `usb` to auto-select the first available USB camera.
-    - On Linux, you can also use /dev/vidoeX (e.g., `/dev/video0`) to select a specific camera.
-    - On Windows, you can also use a camera index (`0`, `1`, `2`, ...) to select a specific camera.
-    - On Raspberry Pi, you can also use `rpi` to enable the Raspberry Pi camera.
-  - A **predefined input name** from `resources_config.yaml` (e.g., `bus`, `street`).
-    - If you choose a predefined name, the input will be **automatically downloaded** if it doesn't already exist.
-    - Use `--list-inputs` to display all available predefined inputs.
-- `-b, --batch-size`: [optional] Number of images in one batch. Defaults to 1.
-- `-s, --save_stream_output`: [optional] Save the output of the inference from a stream.
-- `--no-display`: [optional] Run without opening a display window.
-- `-o, --output-dir`: [optional] Directory where output images/videos will be saved.
-- `--camera-resolution`: [optional][Camera only] Input resolution: `sd` (640x480), `hd` (1280x720), or `fhd` (1920x1080).
-- `--output-resolution`: [optional] Set output size using `sd|hd|fhd`, or pass custom width/height (e.g., `--output-resolution 1920 1080`).
-- `-f, --framerate`: [optional][Camera only] Override the camera input framerate.
-- `--list-models`: [optional] Print all supported networks for this application from the shared `resources_config.yaml`, then exit.
-- `--list-inputs`: [optional] Print the available predefined input resources (images/videos) from the shared `resources_config.yaml`, then exit.
-
-
-Example
--------------------
-- List supported networks:
-    ```shell script
-    ./build/x86_64/object_detection --list-nets
-    ```
-- List available input resources:
-    ```shell script
-    ./build/x86_64/object_detection --list-inputs
-    ```
-- For a video:
-    ```shell script
-	./build/x86_64/object_detection --net yolov8n.hef --input full_mov_slow.mp4 --batch-size 16
-    ```
-    Output video is saved as processed_video.mp4
-
-- For a single image:
-    ```shell script
-    ./build/x86_64/object_detection -n yolov8n.hef -i bus.jpg
-    ```
-    Output image is saved as processed_image_0.jpg
-
-- For a directory of images:
-    ```shell script
-    ./build/x86_64/object_detection -n yolov8n.hef -i images -b 4
-    ````
-    Each image is saved as processed_image_i.jpg
-    
-- For camera, enabling saving the output:
-    ```shell script
-    ./build/x86_64/object_detection --net yolov8n.hef --input /dev/video0 --batch-size 2 -s
-    ```
-    Output video is saved as processed_video.mp4
-
-
-Visualization Configuration
--------------------------------------------
-TThe application supports a simple configuration for controlling how detections are displayed. You can adjust these values in the configuration file to filter low-confidence detections and limit the number of boxes drawn per frame.
-
-#### Example Configuration:
-```json
-"visualization_params": {
-    "score_thres": 0.42,
-    "max_boxes_to_draw": 30,
-}
+```
+VideoCapture.read → slice → preprocess → infer_batch → postprocess(remap + NMM + draw) → VideoWriter.write
 ```
 
-#### Parameter Descriptions:
+- **Target FPS**: hard-coded as `TARGET_FPS = 3.0`. If the source video has a higher fps, frames are skipped to match the target, and the output video is also written at 3 fps. Adjust at [object_detection_video.cpp:73](src/SAHI_object_detection/object_detection_video.cpp#L73) if needed.
+- **Slice cap**: `MAX_SLICES = 32`. If a frame would produce more slices than this, the frame is skipped.
+- **EMA overlay**: per-frame total latency and FPS are smoothed with an exponential moving average (`EMA_ALPHA = 0.1`) and drawn in the top-left corner.
 
-- `score_thres`: Minimum confidence score required to display a detected object.
-- `max_boxes_to_draw`: Maximum number of detected objects to display per frame.
+### Configuration-driven (no CLI args)
+The program reads only the repository-root [`config.yaml`](../../config.yaml). All inputs are resolved under `paths.input_root` and outputs are written under `paths.output_root/<task>/{results,logs}/`.
+
+```yaml
+sahi_object_detection:
+  mode: video                     # image | video
+  input: videos/testvideo.mp4     # → local_data/input/videos/testvideo.mp4
+  net: src/SAHI_object_detection/hef/yolov8n.hef
+  threshold: 0.80                 # class score threshold (drop below)
+  nmm_iou_threshold: 0.10         # IoU threshold used to merge cross-slice duplicates
+  overlap_height: 0.30            # vertical slice overlap ratio (0.0 ~ 1.0)
+  overlap_width: 0.30             # horizontal slice overlap ratio (0.0 ~ 1.0)
+```
+
+| Key | Description |
+|---|---|
+| `mode` | `image` or `video` (must match `--mode` passed to `build.sh`) |
+| `input` | Path relative to `input_root`. Single image, image folder, or video file. |
+| `net` | HEF path. The model's input resolution determines the size of one slice. |
+| `threshold` | Detection score threshold. Lowering it yields more detections but more false positives. |
+| `nmm_iou_threshold` | IoU cutoff used by NMM to remove duplicates across slice boundaries. |
+| `overlap_height`, `overlap_width` | Slice overlap ratios. Use enough overlap to cover boundary objects. |
+
+### Logging
+At runtime a CSV log is created under [`local_data/output/sahi_object_detection/logs/`](../../local_data/output/sahi_object_detection/logs/) as `YYYY-MM-DD_HHMMSS.csv`. Columns are shared across all tasks:
+
+```
+timestamp,level,file,line,func,message
+```
+
+Video inference writes one row per frame:
+
+```
+[sahi-vid] frame=12/450 slices=4 slice=2.1 prep=3.4 infer=18.7 post=1.9 total=26.1 ms  ema=27.0 ms (37.04 FPS)  det=42->18
+```
+
+`HailoInfer` periodically appends chip temperature to the same CSV:
+
+```
+temperature: ts0=58.6 C ts1=58.9 C
+```
 
 
-
-Notes
-----------------
-- The script assumes that the image is in one of the following formats: .jpg, .jpeg, .png or .bmp 
-- When using camera as input:
-    - To exit gracefully from openCV window, press 'q'.
-    - Camera path is usually found under /dev/video0.
-    - Ensure you have the permissions for the camera. You may need to run, for example:
-        ```shell script
-        sudo chmod 777 /dev/video0
-        ```
-    - In case OpenCV is defaulting to GStreamer for video capture, warnings might occur.
-      To solve, force OpenCV to use V4L2 instead of GStreamer by setting these environment variables:
-      ```
-        export OPENCV_VIDEOIO_PRIORITY_GSTREAMER=0
-        export OPENCV_VIDEOIO_PRIORITY_V4L2=100
-      ```
-- Using multiple models on same device:
-    - If you need to run multiple models on the same virtual device (vdevice), use the AsyncModelInfer constructor that accepts two arguments. Initialize each model using the same group_id. 
-    - Example:
-      ```
-         std::string group_id = "<group_id>";
-         AsyncModelInfer model1("<hef1_path>", group_id);
-         AsyncModelInfer model2("<hef2_path>", group_id);
-      ```
-    - By assigning the same group_id to models from different HEF files, you enable the runtime to treat them as part of the same group, allowing them to share resources and run more efficiently on the same hardware.
-
-Disclaimer
+How to Run
 ----------
-This code example is provided by Hailo solely on an “AS IS” basis and “with all faults”. No responsibility or liability is accepted or shall be imposed upon Hailo regarding the accuracy, merchantability, completeness or suitability of the code example. Hailo shall not have any liability or responsibility for errors or omissions in, or any business decisions made by you in reliance on this code example or any part of it. If an error occurs when running this example, please open a ticket in the "Issues" tab.
 
-This example was tested on specific versions and we can only guarantee the expected results using the exact version mentioned above on the exact environment. The example might work for other versions, other environment or other HEF file, but there is no guarantee that it will.
+Build and run in one step — `build.sh` builds only the binary for the selected mode and then launches it:
+
+```shell
+cd src/SAHI_object_detection
+./build.sh --mode image     # single image / image folder
+./build.sh --mode video     # video file
+```
+
+Output locations (created automatically by the program):
+
+| Type | Path |
+|---|---|
+| Results (image/video) | `local_data/output/sahi_object_detection/results/` |
+| Logs (CSV) | `local_data/output/sahi_object_detection/logs/YYYY-MM-DD_HHMMSS.csv` |
+
+- Image input → `results/<original_filename>`
+- Video input → `results/<original_filename>_annotated.mp4`

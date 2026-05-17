@@ -10,9 +10,43 @@ namespace hailo_utils {
 
 struct BaseConfig {
     std::string task;
-    std::string input;
-    std::string output;
+    std::string input;      // resolved: <input_root> / <task>.input
+    std::string output;     // resolved: <output_root> / <task> / results
+    std::string logs_dir;   // resolved: <output_root> / <task> / logs
 };
+
+// config.yaml 의 paths.input_root / paths.output_root 와
+// <task_name>.input 을 합쳐 cfg.input / cfg.output / cfg.logs_dir 를 채운다.
+// results / logs 폴더는 없으면 만든다.
+inline void resolve_task_paths(BaseConfig &cfg, const YAML::Node &root,
+                               const std::string &task_name) {
+    namespace fs = std::filesystem;
+
+    const auto pnode = root["paths"];
+    if (!pnode || !pnode["input_root"] || !pnode["output_root"])
+        throw std::runtime_error("config.yaml: 'paths.input_root' / 'paths.output_root' 가 필요합니다");
+
+    const fs::path input_root  = pnode["input_root"].as<std::string>();
+    const fs::path output_root = pnode["output_root"].as<std::string>();
+
+    const auto tnode = root[task_name];
+    if (!tnode || !tnode["input"])
+        throw std::runtime_error("config.yaml: '" + task_name + ".input' 가 필요합니다");
+
+    const fs::path task_in = tnode["input"].as<std::string>();
+    const fs::path input_full = task_in.is_absolute() ? task_in : (input_root / task_in);
+
+    const fs::path task_out_root = output_root / task_name;
+    const fs::path results_dir   = task_out_root / "results";
+    const fs::path logs_dir      = task_out_root / "logs";
+
+    fs::create_directories(results_dir);
+    fs::create_directories(logs_dir);
+
+    cfg.input    = input_full.string();
+    cfg.output   = results_dir.string();
+    cfg.logs_dir = logs_dir.string();
+}
 
 struct Config : BaseConfig {
     std::string net;
@@ -30,15 +64,12 @@ struct ZeroShotConfig : BaseConfig {
 };
 
 inline void load_base_config(BaseConfig &cfg, const YAML::Node &root) {
-    if (root["task"])   cfg.task   = root["task"].as<std::string>();
-    if (root["input"])  cfg.input  = root["input"].as<std::string>();
-    if (root["output"]) cfg.output = root["output"].as<std::string>();
+    if (root["task"]) cfg.task = root["task"].as<std::string>();
+    // input / output / logs_dir 은 resolve_task_paths() 에서 채운다
 }
 
 inline void add_base_options(CLI::App &app, BaseConfig &cfg) {
-    app.add_option("--task",   cfg.task,   "Task name");
-    app.add_option("--input",  cfg.input,  "Input image or directory");
-    app.add_option("--output", cfg.output, "Output directory");
+    app.add_option("--task", cfg.task, "Task name");
 }
 
 // path 끝에 / 없으면 붙여줌
@@ -53,10 +84,12 @@ inline Config load_config(const std::string &yaml_path) {
 
     YAML::Node root = YAML::LoadFile(yaml_path);
     load_base_config(cfg, root);
+    resolve_task_paths(cfg, root, "classification");
 
     YAML::Node node = root["classification"];
     if (!node) return cfg;
-    if (node["net"])       cfg.net       = node["net"].as<std::string>();
+    std::string net_path = node["net_path"] ? node["net_path"].as<std::string>() : "";
+    if (node["net"])       cfg.net       = join_path(net_path, node["net"].as<std::string>());
     if (node["threshold"]) cfg.threshold = node["threshold"].as<float>();
     return cfg;
 }
@@ -84,6 +117,7 @@ inline ZeroShotConfig load_zeroshot_config(const std::string &yaml_path) {
 
     YAML::Node root = YAML::LoadFile(yaml_path);
     load_base_config(cfg, root);
+    resolve_task_paths(cfg, root, "zero_shot_classification");
 
     YAML::Node node = root["zero_shot_classification"];
     if (!node) return cfg;
@@ -148,6 +182,7 @@ inline ObjDetConfig load_objdet_config(const std::string &yaml_path) {
 
     YAML::Node root = YAML::LoadFile(yaml_path);
     load_base_config(cfg, root);
+    resolve_task_paths(cfg, root, "object_detection");
 
     YAML::Node node = root["object_detection"];
     if (!node) return cfg;
@@ -190,6 +225,7 @@ inline SahiObjDetConfig load_sahi_config(const std::string &yaml_path) {
 
     YAML::Node root = YAML::LoadFile(yaml_path);
     load_base_config(cfg, root);
+    resolve_task_paths(cfg, root, "sahi_object_detection");
 
     YAML::Node node = root["sahi_object_detection"];
     if (!node) return cfg;

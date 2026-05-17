@@ -17,46 +17,49 @@ message(STATUS "Found OpenCV includes: ${OpenCV_INCLUDE_DIRS}")
 # ============================================================
 # Sources
 # ============================================================
-set(SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/object_detection.cpp
+set(COMMON_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/slicing.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/toolbox.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/hailo_infer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/logging.cpp
 )
 
-add_executable(${PROJECT_NAME} ${SOURCES})
+add_executable(${PROJECT_NAME}
+    ${CMAKE_CURRENT_SOURCE_DIR}/object_detection.cpp
+    ${COMMON_SOURCES}
+)
 
-# ============================================================
-# Include dirs
-# ============================================================
-target_include_directories(${PROJECT_NAME} PRIVATE
-    ${OpenCV_INCLUDE_DIRS}
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/../common
-    ${CMAKE_CURRENT_SOURCE_DIR}/../common/labels
+add_executable(${PROJECT_NAME}_video
+    ${CMAKE_CURRENT_SOURCE_DIR}/object_detection_video.cpp
+    ${COMMON_SOURCES}
 )
 
 # ============================================================
-# Compile options
+# Include dirs / compile options / link libs (apply to both)
 # ============================================================
-target_compile_options(${PROJECT_NAME} PRIVATE
-    -Wall -Wextra -O3
-    -Wno-ignored-qualifiers
-    -Wno-extra
-    -Wno-reorder
-)
+foreach(_tgt ${PROJECT_NAME} ${PROJECT_NAME}_video)
+    target_include_directories(${_tgt} PRIVATE
+        ${OpenCV_INCLUDE_DIRS}
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/../common
+        ${CMAKE_CURRENT_SOURCE_DIR}/../common/labels
+    )
 
-if(DEFINED LOG_LEVEL)
-    target_compile_definitions(${PROJECT_NAME} PRIVATE LOG_LEVEL=${LOG_LEVEL})
-endif()
+    target_compile_options(${_tgt} PRIVATE
+        -Wall -Wextra -O3
+        -Wno-ignored-qualifiers
+        -Wno-extra
+        -Wno-reorder
+    )
 
-# ============================================================
-# Link libs
-# ============================================================
-target_link_libraries(${PROJECT_NAME} PRIVATE
-    HailoRT::libhailort
-    Threads::Threads
-    ${OpenCV_LIBS}
-    yaml-cpp
-)
+    if(DEFINED LOG_LEVEL)
+        target_compile_definitions(${_tgt} PRIVATE LOG_LEVEL=${LOG_LEVEL})
+    endif()
+
+    target_link_libraries(${_tgt} PRIVATE
+        HailoRT::libhailort
+        Threads::Threads
+        ${OpenCV_LIBS}
+        yaml-cpp
+    )
+endforeach()

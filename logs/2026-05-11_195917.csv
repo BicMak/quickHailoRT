@@ -1,4 +1,0 @@
-timestamp,level,file,line,func,message
-2026-05-11 19:59:17.204,INFO ,clip_example.cpp,116,main,"zero_shot_classification started"
-2026-05-11 19:59:17.205,INFO ,clip_example.cpp,130,main,"loading models — text: src/zero_shot_classification/hef/clip_text_encoder_vit_l_14_laion2B.hef | image: src/zero_shot_classification/hef/clip_vit_l_14_laion2B_image_encoder.hef"
-2026-05-11 19:59:17.242,ERROR,clip_example.cpp,194,main,"exception: Expected::expect() failed with status=13. Failed to create HEF"

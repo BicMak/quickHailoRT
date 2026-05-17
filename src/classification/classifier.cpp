@@ -38,10 +38,9 @@ static std::string classify_and_format(const std::vector<float> &probs, float th
 int main(int argc, char **argv)
 {
     try {
-        logger::set_log_file("logs");
-        LOG_INFO("classifier started");
-
         auto cfg = parse_config(argc, argv, "config.yaml");
+        logger::set_log_file(cfg.logs_dir.c_str());
+        LOG_INFO("classifier started");
         LOG_DEBUG("config: net=%s input=%s output=%s threshold=%.2f",
                   cfg.net.c_str(), cfg.input.c_str(), cfg.output.c_str(), cfg.threshold);
 

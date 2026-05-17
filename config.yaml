@@ -1,30 +1,41 @@
-task: zero_shot_classification
-input: local_data/input_img
-output: local_data/output_img
+# ============================================================
+# Global paths
+# ============================================================
+# 모든 task의 입력은 input_root 아래에서 찾고,
+# 출력은 output_root/<task_name>/{results,logs}/ 로 떨어집니다.
+paths:
+  input_root:  local_data/input
+  output_root: local_data/output
+
+# ============================================================
+# Per-task settings
+# 각 task의 `input` 은 input_root 기준 상대경로
+# (파일이든 폴더든). 출력 경로는 코드가 강제로 결정합니다.
+# ============================================================
 
 classification:
-  net_path : src/classification/hef/
+  input: images/
+  net_path: src/classification/hef/
   net: efficientnet_m.hef
   threshold: 0.30
 
 zero_shot_classification:
+  input: images/
   threshold: 0.30
-  encoder_path : src/zero_shot_classification/hef/
+  encoder_path: src/zero_shot_classification/hef/
   text_encoder: clip_vit_b_16_text_encoder.hef
   image_encoder: clip_vit_b_16_image_encoder.hef
-
-  npy_path : src/zero_shot_classification/npy/
+  npy_path: src/zero_shot_classification/npy/
   text_projection: clip_vit_b_16_text_projection.npy
   embedding_npy: clip_vit_b_16_token_embedding.npy
   bpe_vocab: src/zero_shot_classification/tokenizer/bpe_simple_vocab_16e6.txt
   prompts_file: src/zero_shot_classification/text_label.yaml
 
 sahi_object_detection:
-  net:              src/SAHI_object_detection/hef/yolov8n.hef
-  input:            src/SAHI_object_detection/image
-  output:           src/SAHI_object_detection/output
-  threshold:        0.50
+  mode: video                     # image | video
+  input: videos/testvideo.mp4     # → local_data/input/videos/testvideo.mp4
+  net: src/SAHI_object_detection/hef/yolov8n.hef
+  threshold: 0.80
   nmm_iou_threshold: 0.10
-  overlap_height:   0.20
-  overlap_width:    0.20
-
+  overlap_height: 0.30
+  overlap_width: 0.30

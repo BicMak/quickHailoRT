@@ -1,6 +1,6 @@
 # quickHailoRT
 
-Inference framework for Hailo8 NPU. Switch tasks via a single `config.yaml` and build + run with one `starter.sh` call.
+Inference framework for the Hailo8 NPU. Switch tasks via a single `config.yaml` and build + run with one `starter.sh` call.
 
 ## Requirements
 
@@ -65,23 +65,36 @@ vi config.yaml
 ./starter.sh
 ```
 
+Override the task on the command line (skips the `task:` line in `config.yaml`):
+```bash
+./starter.sh --task sahi_object_detection
+```
+
 Change log level:
 ```bash
-LOG_LEVEL=0 ./starter.sh   # 0=TRACE 1=DEBUG 2=INFO 3=WARN 4=ERROR
+LOG_LEVEL=0 ./starter.sh   # 0=TRACE 1=DEBUG 2=INFO 3=WARN 4=ERROR 5=NONE
 ```
 
 ## config.yaml
 
+A single root config drives every task. Inputs are resolved under `paths.input_root`; outputs are written under `paths.output_root/<task>/{results,logs}/` (the binaries enforce this layout — no per-task `output:` key).
+
 ```yaml
-task: zero_shot_classification   # task to run
-input: local_data/input_img      # input image or directory
-output: local_data/output_img    # output path
+task: sahi_object_detection      # task to run
+
+paths:
+  input_root:  local_data/input
+  output_root: local_data/output
 
 classification:
-  net: src/classification/hef/efficientnet_m.hef
+  input: images/                 # relative to input_root
+  net_path: src/classification/hef/
+  net: efficientnet_m.hef
   threshold: 0.30
 
 zero_shot_classification:
+  input: images/
+  threshold: 0.30
   encoder_path: src/zero_shot_classification/hef/
   text_encoder: clip_vit_b_16_text_encoder.hef
   image_encoder: clip_vit_b_16_image_encoder.hef
@@ -90,9 +103,18 @@ zero_shot_classification:
   embedding_npy: clip_vit_b_16_token_embedding.npy
   bpe_vocab: src/zero_shot_classification/tokenizer/bpe_simple_vocab_16e6.txt
   prompts_file: src/zero_shot_classification/text_label.yaml
+
+sahi_object_detection:
+  mode: video                    # image | video
+  input: videos/testvideo.mp4
+  net: src/SAHI_object_detection/hef/yolov8n.hef
+  threshold: 0.80
+  nmm_iou_threshold: 0.10
+  overlap_height: 0.30
+  overlap_width: 0.30
 ```
 
-Changing the `task` field is all it takes to switch tasks.
+Changing the top-level `task:` field is all it takes to switch tasks.
 
 ## Supported Tasks
 
@@ -106,7 +128,7 @@ input image → EfficientNet HEF → top-1 class + confidence
 
 ### zero_shot_classification
 
-Zero-shot classification using CLIP ViT-B/16.
+Zero-shot classification with CLIP ViT-B/16.
 
 ```
 prompts → BPE tokenization → token embedding → text encoder HEF → text embeddings
@@ -116,13 +138,33 @@ input image → image encoder HEF → image embedding
 
 Prompts are managed via `prompts_file` (yaml). Default: `text_label.yaml` (100+ labels across animals, vehicles, electronics, etc.).
 
+### sahi_object_detection
+
+SAHI (Sliced Aided Hyper Inference) detection on Hailo. The frame is split into overlapping slices sized to the model input, each slice is inferred, and detections are merged back to the original image with NMM. See [src/SAHI_object_detection/README.md](src/SAHI_object_detection/README.md) for details.
+
+Two binaries are built from this task; `starter.sh` selects between them based on `sahi_object_detection.mode` in `config.yaml`:
+
+| `mode` | binary | input |
+|---|---|---|
+| `image` | `SAHI_object_detection` | single image or image folder |
+| `video` | `SAHI_object_detection_video` | video file (3 FPS target, EMA latency/FPS overlay) |
+
+Supports detection models whose HEF includes HailoRT-Postprocess (YOLOv5/6/7/8/10/11, YOLOX, SSD, CenterNet).
+
 
 ## Logs
 
-Saved as `logs/YYYY-MM-DD_HHMMSS.csv` on every run.
+Each run writes a CSV log to `local_data/output/<task>/logs/YYYY-MM-DD_HHMMSS.csv` with columns:
+
+```
+timestamp,level,file,line,func,message
+```
+
+Analysis helpers under [scripts/](scripts/):
 
 ```bash
-python3 analyze_logs.py logs/2026-05-12_152609.csv
+python3 scripts/analyze_log.py        local_data/output/classification/logs/2026-05-12_152609.csv
+python3 scripts/analyze_video_log.py  local_data/output/sahi_object_detection/logs/2026-05-12_152609.csv
 ```
 
 ## HailoInfer API

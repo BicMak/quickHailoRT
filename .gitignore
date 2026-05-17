@@ -39,6 +39,9 @@ test_output.jpg
 local_data/
 docs/
 logs/
+report/
+src/SAHI_object_detection/image/
+src/SAHI_object_detection/output/
 
 # ── Misc ─────────────────────────────────────────────────────────────────────
 hailo-apps/
@@ -48,5 +51,6 @@ imagenet-sample-images/
 .idea/
 .vscode/
 *.swp
+.*.swp
 sources/
 *~
