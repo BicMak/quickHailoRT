@@ -278,10 +278,9 @@ static std::vector<float> dot_logits(const std::vector<float> &img_emb,
 }
 
 int main(int argc, char **argv) try {
-    logger::set_log_file("logs");
-    LOG_INFO("zero_shot_classification started");
-
     auto cfg = hailo_utils::parse_zeroshot_config(argc, argv, "config.yaml");
+    logger::set_log_file(cfg.logs_dir.c_str());
+    LOG_INFO("zero_shot_classification started");
 
     if (cfg.text_encoder.empty() || cfg.image_encoder.empty()) {
         LOG_ERROR("text_encoder and image_encoder paths required");
